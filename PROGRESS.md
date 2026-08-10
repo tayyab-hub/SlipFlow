@@ -9,12 +9,28 @@ every session.
 
 ## Current state
 
-**Phase:** 1 — skeleton app / dashboard shell
+**Phase:** 2 — SQLite database layer
 **Status:** ✅ Complete, verified against its Definition of Done
-**Next phase:** 2 — SQLite database layer
+**Next phase:** 3 — file upload + automatic column detection
 **Last updated:** 2026-08-10
 
 ### What works right now (observed, not assumed)
+
+**Database (Phase 2)**
+
+- The app opens/creates its database on startup at
+  `C:\Users\User\AppData\Roaming\StitchFlow\stitchflow.db` — i.e.
+  `%APPDATA%\StitchFlow\stitchflow.db`, as the spec requires. Verified by launching the
+  app and then inspecting the file with a separate reader: WAL mode on, foreign keys on,
+  8 tables (the 7 domain tables + `schema_migrations`), 12 indexes, all 8 STRICT, and
+  migration `0001_init` recorded.
+- `npm run db:verify` passes all 11 checks: a write-and-read-back per table, plus
+  transaction rollback, foreign-key cascade, STRICT type rejection, and migration
+  idempotency on reopen. It runs against a throwaway database in the temp directory, so
+  it never touches real data, and it prints where the live database would be.
+- Driver is **`node:sqlite`**, not `better-sqlite3` — see CLAUDE.md §9 for why.
+
+**Dashboard shell (Phase 1)**
 
 - `npm run dev` opens a 1280×880 Electron window showing the StitchFlow dashboard:
   header with brand mark, three action tiles (**Upload Orders / Review Production /
@@ -34,9 +50,14 @@ every session.
 
 ### What does NOT exist yet
 
-No database, no file upload, no parsing, no SKU mapping, no review table, no print view,
-no batches, no settings, no installer, no lint, no tests. The three action tiles are
-inert by design. Every counter is a hard-coded zero from `EMPTY_DASHBOARD_SUMMARY`.
+No file upload, no parsing, no SKU mapping UI, no review table, no print view, no batch
+creation flow, no settings UI, no installer, no lint, no tests beyond `db:verify`.
+
+**The database is not connected to the UI at all** — that is deliberate, Phase 2 was
+explicitly "nothing UI-facing". There are no IPC channels for data yet (`app:info` is
+still the only one), the three action tiles are inert, and the four dashboard counters
+are hard-coded zeros from `EMPTY_DASHBOARD_SUMMARY`. The repositories exist and are
+tested, but nothing calls them except `db-verify.ts`.
 
 ### Assumptions Claude made (not from a spec — change freely)
 
@@ -60,6 +81,45 @@ The original spec document is **not in this repo**, so these were invented:
 6. **Dark-mode tokens exist but nothing activates them** (no `.dark` class is ever set).
    Kept so a Phase 7 theme setting doesn't require redefining all 25 colours.
 
+### Schema decisions Claude invented — REVIEW THESE
+
+The phase brief named the seven tables but not their columns, and the spec document is
+not in the repo. Everything below was chosen, not read. **`0001_init.sql` is now
+committed, so from here on the schema is additive-only** (CLAUDE.md §5.1) — if any of
+this is wrong, say so and it gets amended in place while the database still holds no real
+data. That option disappears once real batches exist.
+
+1. **`imported_orders` keeps the raw rows** exactly as read from the file (`raw_sku`,
+   `raw_variation`, `raw_colour`, `raw_size`), separate from the grouped
+   `production_items`. That is what makes "where did this line come from?" answerable and
+   gives duplicate detection something stable to compare.
+2. **`sku_mappings` matching is case-insensitive** (`COLLATE NOCASE` on `incoming_sku`,
+   `incoming_variation`, `platform`), because marketplace exports are inconsistent about
+   case and `ABC-01` / `abc-01` are one product. Changing a collation later means a new
+   index, so this was decided now on purpose.
+3. **`platform = ''` means "applies to every platform"**, and a platform-specific mapping
+   row wins over the catch-all. Same for `incoming_variation = ''` meaning "match by SKU
+   alone". Verified by a test in `db:verify`.
+4. **Optional text columns are `NOT NULL DEFAULT ''`, not nullable**, wherever they take
+   part in a unique index — SQLite treats NULLs as distinct, so a nullable column would
+   silently let duplicates through the constraint.
+5. **`batches` stores `total_items` / `total_units` / `unresolved_count`** rather than
+   deriving them, so the Phase 7 history list needs no aggregates. `productionItems
+   .totalsForBatch()` computes the true values; whoever writes a batch must keep the
+   stored copies in step.
+6. **`production_items` is deliberately NOT unique** on (batch, sku, colour, size),
+   because Phase 5 lets the operator add and merge rows by hand. Grouping is enforced in
+   code at insert time, not by the database.
+7. **Issue states live on the row** (`issue_type`, `issue_note`, `is_resolved`) rather
+   than in a separate issues table. `listPrintable()` is the single place that decides
+   what may be printed: resolved **and** issue-free.
+8. **All tables are `STRICT`** — SQLite rejects a wrong-typed value instead of storing it.
+   Worth having when the input is spreadsheets. Verified by a test.
+9. **Timestamps are ISO-8601 UTC strings**; `batch_number` is a free-text human reference
+   (nothing generates one yet — that's Phase 7).
+10. **`schema_migrations` is an eighth table**, infrastructure rather than domain, needed
+    to make the append-only rule enforceable.
+
 ### Decisions a later session must not silently reverse
 
 - **Bundler is electron-vite** (main / preload / renderer → `out/`).
@@ -74,7 +134,21 @@ The original spec document is **not in this repo**, so these were invented:
   The packaged app (file://, no dev server) gets the strict policy. This is a dev/prod
   difference, not a weakened production app.
 - **Single-instance lock is on.** Two copies of the app would mean two writers on one
-  SQLite file in Phase 2.
+  SQLite file.
+- **Database driver is `node:sqlite`, not `better-sqlite3`.** Rationale and consequences
+  in CLAUDE.md §9. Do not swap it without reading that section — the machine has no C++
+  toolchain, so `better-sqlite3` cannot even build here.
+- **`src/main/app-identity.ts` calls `app.setPath('userData', …)` explicitly, at module
+  scope.** This is the only thing deciding where operator data lives. Moving it inside
+  `whenReady()`, or trusting `productName`/`app.setName()` instead, sends the database to
+  `%APPDATA%\Electron` — that actually happened during this phase.
+- **WAL journal mode**, with a `wal_checkpoint(TRUNCATE)` on clean shutdown so the `.db`
+  file is self-contained. Phase 7 backups must use `sqlite.backup()`, not a file copy.
+- **Repositories are factories** (`createBatchesRepository(db)`) assembled in
+  `src/main/db/index.ts`, and take the handle explicitly — that is what lets `db:verify`
+  run the identical code against a throwaway database.
+- **`rows.ts` readers throw on a type mismatch instead of coercing.** Deliberate: a
+  schema/mapper drift should be loud, not a `NaN` on a production sheet.
 - **Preload exposes named functions only** (`window.stitchflow.getAppInfo()`). No
   `ipcRenderer` passthrough, no generic `invoke(channel, ...)`.
 - **Tailwind v4, CSS-first — there is no `tailwind.config.ts`.** Do not create one.
@@ -82,10 +156,10 @@ The original spec document is **not in this repo**, so these were invented:
   `electron-vite@5` peer-requires ≤ 7, and plugin-react 6 requires Vite 8. These three
   move together or not at all.
 - **Bundled libs live in `devDependencies`**; `dependencies` is reserved for native
-  runtime modules (`better-sqlite3`, Phase 2). See CLAUDE.md §3.
+  runtime modules, of which there are now none. See CLAUDE.md §3.
 - **No router yet** — added in Phase 3, when a second screen exists.
-- Git tag **`phase-1-skeleton`** marks this commit. `git checkout phase-1-skeleton`
-  returns to a known-good state.
+- Git tags **`phase-1-skeleton`** and **`phase-2-database`** mark those commits.
+  `git checkout <tag>` returns to a known-good state.
 
 ### Known issues / environment gotchas
 
@@ -105,8 +179,19 @@ The original spec document is **not in this repo**, so these were invented:
    other removed options; TS 7 is new. Bundler aliases are separate, in
    `electron.vite.config.ts`; a new alias needs adding in **both** places.
 5. **No git remote** — history is local only, so this is not a backup.
-6. **No lint or test setup** (deferred to Phase 9). Don't reference `npm run lint` or
-   `npm test`; they don't exist.
+6. **No lint or test setup** (deferred to Phase 9). `npm run db:verify` is the only
+   automated check that exists; don't reference `npm run lint` or `npm test`.
+7. **`node:sqlite` is marked experimental upstream.** It works today on Electron 43; an
+   Electron upgrade could in principle remove or change it. `npm run db:verify` is the
+   canary — run it first after any Electron bump.
+8. **`%APPDATA%\Electron` may exist on this machine** from Phase 1 dev runs, before the
+   userData path was pinned. It holds only Chromium dev cache, no StitchFlow data
+   (checked). Harmless; it is also the shared dev folder for other Electron projects, so
+   don't delete it blindly.
+9. **The stored batch counters can drift.** `batches.total_items` / `total_units` /
+   `unresolved_count` are written by callers, not maintained by a trigger. Whoever builds
+   the batch-save flow (Phase 5/7) must call `productionItems.totalsForBatch()` and write
+   the result, or the history list will show stale numbers.
 
 ### Useful technique for verifying UI phases
 
@@ -114,26 +199,33 @@ To check the UI actually renders without a human looking at it: temporarily add 
 env-gated hook in `createMainWindow` that, on `did-finish-load`, calls
 `window.webContents.capturePage()`, writes the PNG, optionally drives a click via
 `executeJavaScript`, then `app.exit(0)`. Remove it before committing — it was used and
-removed in this phase, so `out/main/index.js` should stay at ~2.9 kB.
+removed in Phase 1, so `out/main/index.js` should stay small (~3.7 kB now).
 
-### Next actions — Phase 2 (SQLite)
+For database phases the equivalent is `npm run db:verify`, which is permanent — extend it
+rather than writing a throwaway script.
 
-1. `npm install better-sqlite3` into **`dependencies`** (native module), plus
-   `@electron/rebuild` in devDependencies; rebuild against Electron 43's ABI. Budget time
-   for this — it's the usual first-hour sink.
-2. **Verify, don't assume, the DB path.** The spec wants
-   `%APPDATA%\StitchFlow\stitchflow.db`. Electron derives `userData` from the app name,
-   and `package.json` sets `"name": "stitchflow"` with `"productName": "StitchFlow"` —
-   confirm `app.getPath('userData')` actually resolves to `...\StitchFlow` and not
-   `...\stitchflow`, and call `app.setName('StitchFlow')` if it doesn't.
-3. Create `src/main/db/` per CLAUDE.md §3: `schema.sql`, `migrations/0001_init.sql`,
-   `repositories/` (one file per table). Tables: `batches`, `production_items`,
-   `sku_mappings`, `imported_orders`, `import_files`, `column_mappings`, `settings`.
-4. Migrations are **append-only** from this point on (CLAUDE.md §5.1) — get the initial
-   schema reviewed before committing, because after Phase 2 it can only be added to.
-5. CRUD per table, callable from main. **No UI wiring in Phase 2** — the dashboard
-   counters stay hard-coded zeros until a later phase.
-6. Verification for the DoD: a script that inserts and reads back one row per table.
+### Next actions — Phase 3 (upload + column detection)
+
+1. **Ask for spec §30 and the column-alias list first.** Phase 3 needs the marketplace
+   sample-file definitions and the SKU/colour/size/quantity header aliases. Both are in
+   the missing spec document. Guessing the alias list means guessing the core of the
+   feature — ask, don't invent.
+2. `npm install --save-dev xlsx` (SheetJS). It is bundled by Vite into the main process,
+   so devDependencies is correct — see CLAUDE.md §3.
+3. Parsing runs in **main**, never the renderer (CLAUDE.md §2). New IPC channels go in
+   `src/shared/ipc-channels.ts` and named functions in the preload — this is the phase
+   where the bridge stops being a single `getAppInfo`.
+4. The database side is already built and tested: `importFiles.create/findByHash`,
+   `importedOrders.createMany`, `columnMappings.findBySignature/create/recordUse`. Wrap
+   multi-row imports in `db.transaction(...)` — CLAUDE.md §5.10 requires that a bad row
+   cannot leave a half-imported file behind.
+5. `header_signature` is the mechanism behind "remember this mapping". Decide the
+   normalisation (lowercase, trim, drop punctuation, join with `|`) and keep it stable —
+   if it changes later, every saved mapping stops matching.
+6. Generate the fixed sample TikTok/Shopee/Lazada files this phase, plus one deliberately
+   weird file. Per CLAUDE.md §7 these become permanent regression fixtures — commit them
+   and don't regenerate them later.
+7. `npm run db:verify` must still pass at the end of the phase.
 
 ---
 
@@ -211,3 +303,64 @@ only, Vite pinned to 7, no `tailwind.config.ts`, bundled deps in `devDependencie
 **Next:** Phase 2 — SQLite layer. Confirm the `%APPDATA%\StitchFlow` path resolves
 correctly before creating tables, and get the initial schema reviewed before committing,
 since migrations become append-only afterwards.
+**Commit:** `d19b379`, tag `phase-1-skeleton`
+
+## Session 3 — 2026-08-10 — Phase 2
+
+**Built:**
+- `src/main/db/migrations/0001_init.sql` — the seven tables plus 12 indexes, all STRICT,
+  heavily commented. Inlined into the bundle via Vite `?raw`, so there is no file to find
+  at runtime. Migration registry and transactional runner in `migrations/index.ts` with a
+  `schema_migrations` table.
+- `src/main/db/index.ts` — `openDatabase()` (WAL, foreign keys, 5 s busy timeout),
+  `transaction()` that joins rather than nests, `close()` that checkpoints the WAL, and
+  the app-wide `initialiseDatabase` / `getDatabase` / `closeDatabase` handle.
+- Seven repositories in `src/main/db/repositories/`, plus support modules `rows.ts`
+  (typed column readers, `nowIso`), `update-builder.ts` (partial UPDATE + `IN (…)`
+  placeholders), `paths.ts` (database and backup locations).
+- `src/main/app-identity.ts` — pins app name **and** `userData`, called at module scope.
+- `src/shared/types.ts` — record, `New*` and `*Update` types for all seven tables, plus
+  the `BatchStatus` / `DetectionStatus` / `ProductionIssueType` unions matching the CHECK
+  constraints.
+- `src/main/db-verify.ts` + `npm run db:verify` — 11 checks, run as a second
+  electron-vite main entry so it exercises the real bundled code.
+- `src/main/index.ts` opens the database before the window exists and closes it on
+  `will-quit`; a failure to open shows an error box and exits rather than rendering a
+  dashboard over a dead database.
+
+**Verified:** `npm run typecheck` clean. `npm run db:verify` — 11/11 pass (write/read per
+table, transaction rollback, FK cascade, STRICT rejection, migration idempotency).
+Launched the app, which created
+`C:\Users\User\AppData\Roaming\StitchFlow\stitchflow.db`; inspected that file with an
+independent reader — WAL on, foreign keys on, 8 tables, 12 indexes, 8 STRICT, migration
+`0001_init` recorded.
+
+**Not done / left:** No UI wiring, no new IPC channels — Phase 2 was explicitly
+"nothing UI-facing". Nothing generates a `batch_number` yet. The stored batch counters are
+not maintained automatically (see Known issues #9).
+
+**Known issues:** The path bug below, now fixed. Plus `node:sqlite`'s experimental status
+and the stored-counter drift risk — both in "Known issues" above.
+
+**Decisions:**
+- **`node:sqlite` instead of `better-sqlite3`** — checked the machine first: no MSVC C++
+  toolchain exists, so `better-sqlite3` could not be rebuilt for Electron's ABI here.
+  `node:sqlite` needs no compiler, no rebuild, and no asar unpacking in Phase 8. Full
+  rationale and consequences in CLAUDE.md §9.
+- **Migrations are the authoritative schema; `schema.sql` was dropped** from the planned
+  layout. Two copies of the DDL would drift. CLAUDE.md §3 and §5.1 updated to match.
+- Schema shape choices (case-insensitive SKU matching, `''` as the wildcard, no unique
+  constraint on production items, stored batch totals) are listed under "Schema decisions
+  Claude invented" above and are the main thing worth reviewing.
+
+**Bug found and fixed during the phase:** `app.getPath('userData')` resolved to
+`%APPDATA%\Electron`, not `%APPDATA%\StitchFlow` — Electron fixes that path during
+startup, so neither `productName` in package.json nor `app.setName()` moves it. Fixed by
+calling `app.setPath('userData', …)` explicitly at module scope in `app-identity.ts`. This
+is exactly the item flagged as "verify, don't assume" at the end of Phase 1; had it not
+been checked, the database would have shipped to the wrong directory.
+
+**Next:** Phase 3 — upload + column detection. **Ask for the spec's column-alias list and
+§30 sample-file definitions before starting**; the alias list is the core of the feature
+and guessing it wastes the phase.
+**Commit:** tag `phase-2-database`

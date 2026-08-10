@@ -11,7 +11,12 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: resolve(__dirname, 'src/main/index.ts')
+        input: {
+          // The app entry, plus the standalone DB verification script run by
+          // `npm run db:verify` (electron out/main/db-verify.js).
+          index: resolve(__dirname, 'src/main/index.ts'),
+          'db-verify': resolve(__dirname, 'src/main/db-verify.ts')
+        }
       }
     },
     resolve: {

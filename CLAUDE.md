@@ -40,7 +40,7 @@ swap it silently.
 | Styling | **Tailwind CSS v4** | Utility classes in JSX. **CSS-first config — there is no `tailwind.config.ts`**; theme tokens live in `src/renderer/styles/globals.css`. No CSS-in-JS. |
 | Components | **shadcn/ui** | Copy-in components under `src/renderer/components/ui/`. Owned by us, editable. `components.json` is configured, so `npx shadcn@latest add <x>` lands in the right place. |
 | Bundler | **electron-vite** (Vite 7) | Builds main / preload / renderer. Output in `out/`. |
-| Database | **SQLite** | Single local file. Accessed **only** from the Electron main process. |
+| Database | **SQLite** via **`node:sqlite`** (built in) | Single local file at `%APPDATA%\StitchFlow\stitchflow.db`. Accessed **only** from the Electron main process. **Not** `better-sqlite3` — see §9. |
 | Spreadsheets | **SheetJS (xlsx)** | All Excel import/export. Runs in main process, not the renderer. |
 | Language | **TypeScript, strict** | `strict: true`. No `any` unless commented with why. |
 
@@ -64,11 +64,19 @@ Factory_Software/
 └── src/
     ├── main/                  # Electron main process (Node context)
     │   ├── index.ts           # app lifecycle, window creation, IPC registration
+    │   ├── app-identity.ts    # app name + userData path — pins the database location
+    │   ├── db-verify.ts       # `npm run db:verify` entry (second electron-vite input)
+    │   ├── env.d.ts           # types the `*.sql?raw` imports
     │   ├── ipc/               # ⬜ one file per IPC domain once index.ts outgrows it
-    │   ├── db/                # ⬜ Phase 2
-    │   │   ├── schema.sql     #    authoritative schema (see rule 5.1)
-    │   │   ├── migrations/    #    NNNN_description.sql, append-only
-    │   │   └── repositories/  #    one file per table/aggregate; all SQL lives here
+    │   ├── db/
+    │   │   ├── index.ts       # open/close, pragmas, transaction helper, repositories
+    │   │   ├── paths.ts       # database + backup locations
+    │   │   ├── rows.ts        # column readers (SQLOutputValue → typed), nowIso()
+    │   │   ├── update-builder.ts
+    │   │   ├── migrations/
+    │   │   │   ├── index.ts   #    registry + runner. THE authoritative schema.
+    │   │   │   └── 0001_init.sql   # append-only, never edited (see rule 5.1)
+    │   │   └── repositories/  #    one file per table; all SQL lives here
     │   └── excel/             # ⬜ Phase 3 — SheetJS import + export
     ├── preload/
     │   ├── index.ts           # contextBridge surface — the ONLY main↔renderer door
@@ -111,8 +119,9 @@ Factory_Software/
 - **Dependency placement matters for packaging.** Anything bundled by Vite (React,
   Tailwind, icons, shadcn helpers, SheetJS if used in main) goes in `devDependencies`.
   Only genuinely external/native modules that must ship as real `node_modules` at
-  runtime — `better-sqlite3` in Phase 2 — go in `dependencies`. Getting this backwards
-  bloats the Phase 8 installer.
+  runtime go in `dependencies`. As of Phase 2 there are none — the database driver is
+  built into Node — so everything is a devDependency. Getting this backwards bloats the
+  Phase 8 installer.
 
 ---
 
@@ -126,19 +135,25 @@ npm run preview      # run the built output without the dev server
 npm run typecheck    # both projects  ← run before declaring any task done
 npm run typecheck:node   # main + preload + shared
 npm run typecheck:web    # renderer + shared
+npm run db:verify    # inserts + reads back a row in every table, on a throwaway copy
 ```
 
 Not configured yet: **`npm run lint`** and **`npm test`**. Deferred to Phase 9 — don't
 reference them as if they exist.
 
 **Definition of done for any code change:** `npm run typecheck` passes and the app still
-launches (actually run it — `npm run dev` — don't infer it from a green typecheck).
+launches (actually run it — `npm run dev` — don't infer it from a green typecheck). After
+**any** change to the schema or the repositories, `npm run db:verify` must also pass.
 
 ### Environment gotchas hit already
 
 - **Electron's binary download can silently no-op** during `npm install`, and `npm run
   dev` then fails with `Error: Electron uninstall`. Fix:
   `node node_modules/electron/install.js`. Do not "fix" this by changing the config.
+- **`ELECTRON_RUN_AS_NODE=1` leaks in from the VS Code host process**, making
+  `require('electron')` return a path string; startup then dies on
+  `Cannot read properties of undefined (reading 'isPackaged')`. Fix in that terminal:
+  `Remove-Item Env:ELECTRON_RUN_AS_NODE`. Not an app bug.
 - **Vite is pinned to `^7`.** Vite 8 exists but `electron-vite@5` peer-requires ≤7, and
   `@vitejs/plugin-react@6` requires Vite 8 — so that plugin is pinned to `^5`. Don't
   bump any of these three without checking the other two.
@@ -156,12 +171,14 @@ These exist because breaking them is expensive to undo. Violating one is worse t
 leaving a task unfinished.
 
 1. **Never rewrite, drop, or restructure the database schema without asking.** Schema
-   changes are **additive migrations only**: add a new numbered file in
-   `src/main/db/migrations/`, never edit a migration that already exists, never
-   `DROP TABLE`, never rename a column in place. If a change seems to require destroying
-   data, stop and ask.
+   changes are **additive migrations only**: add a new numbered `.sql` file plus an entry
+   in `src/main/db/migrations/index.ts`. Never edit `0001_init.sql` or any migration that
+   already exists, never `DROP TABLE`, never rename a column in place. If a change seems
+   to require destroying data, stop and ask. **The migrations are the authoritative
+   schema** — there is no separate `schema.sql` to keep in sync.
 2. **Never delete or overwrite a user's `.db` file**, and never point the app at a
-   different database path as a workaround.
+   different database path as a workaround. Nothing except
+   `src/main/app-identity.ts` decides where the data lives.
 3. **Never disable `contextIsolation`, enable `nodeIntegration`, or turn off
    `sandbox`/CSP** to make something work. Route it through preload IPC instead.
 4. **Do not restructure folders, rename files wholesale, or "reorganize" working code**
@@ -194,14 +211,14 @@ leaving a task unfinished.
 
 ## 7. Phase tracker
 
-**Current phase: Phase 1 — skeleton app / dashboard shell ✅ complete**
-**Next phase: Phase 2 — SQLite database layer**
+**Current phase: Phase 2 — SQLite database layer ✅ complete**
+**Next phase: Phase 3 — file upload + automatic column detection**
 
 | Phase | Goal | Commit tag | Status |
 |---|---|---|---|
 | 0 | Git repo, `.gitignore`, CLAUDE.md, PROGRESS.md | — | ✅ Done |
 | 1 | Electron + React + TS + Tailwind + shadcn scaffold. Empty dashboard: 3 buttons (Upload / Review / Print) + 4 summary cards with placeholder zeros. No logic. | `phase-1-skeleton` | ✅ Done |
-| 2 | SQLite layer. Tables: `batches`, `production_items`, `sku_mappings`, `imported_orders`, `import_files`, `column_mappings`, `settings`. DB at `%APPDATA%\StitchFlow\stitchflow.db`. Basic CRUD per table, nothing UI-facing. | `phase-2-database` | ⬜ Not started |
+| 2 | SQLite layer. Tables: `batches`, `production_items`, `sku_mappings`, `imported_orders`, `import_files`, `column_mappings`, `settings`. DB at `%APPDATA%\StitchFlow\stitchflow.db`. Basic CRUD per table, nothing UI-facing. | `phase-2-database` | ✅ Done |
 | 3 | File upload (drag-drop + picker). Parse `.xlsx`/`.xls`/`.csv` via SheetJS. Auto-detect SKU/colour/size/quantity columns from the spec's alias list. Show row count + platform per file. Manual-mapping fallback screen, mapping saved for reuse. Also generate the sample marketplace test files (spec §30). | `phase-3-upload-parsing` | ⬜ Not started |
 | 4 | SKU Mapping screen (incoming SKU → factory SKU/colour/size/platform + bulk import). Grouping (sum qty by factory SKU+colour+size). Duplicate detection (order ID + SKU + variation + qty hash) with Ignore / Import Anyway prompt. | `phase-4-mapping-grouping` | ⬜ Not started |
 | 5 | Review table (edit SKU/colour/size/qty, delete, add, merge, search/filter/sort). Issues screen (missing SKU/colour/size, invalid qty, unknown mapping, duplicate) with Fix flow. Unresolved items excluded from print until confirmed. | `phase-5-review-issues` | ⬜ Not started |
@@ -239,3 +256,31 @@ A4 ASCII layout mockup, sample-file definitions in §30, the 31-step Final Test)
 document is not in this repo.** When a phase needs detail from it, ask for the relevant
 section rather than inventing it. Anything Claude guessed instead of read is flagged in
 PROGRESS.md under "Assumptions".
+
+---
+
+## 9. Why `node:sqlite` and not `better-sqlite3`
+
+Decided in Phase 2, after checking the machine rather than assuming:
+
+- `better-sqlite3` is a native addon. It ships prebuilds for Node's ABI, not Electron's,
+  so it needs `@electron/rebuild` to compile from source — and **this machine has no MSVC
+  C++ toolchain**, so that build cannot succeed. It would also have to be rebuilt on every
+  Electron upgrade and unpacked from the asar in Phase 8.
+- `node:sqlite` is part of Electron's bundled Node (verified: Electron 43 / Node 24.18
+  exposes `DatabaseSync`). No compiler, no rebuild, no packaging step, nothing to break on
+  an Electron upgrade.
+
+Consequences worth knowing:
+
+- Rows come back as `Record<string, SQLOutputValue>`, so every column is narrowed through
+  the readers in `src/main/db/rows.ts`. They throw on a type mismatch rather than coercing
+  — that is deliberate, it catches schema/mapper drift immediately.
+- There is no `db.transaction()` helper like better-sqlite3's; use
+  `db.transaction(() => …)` from `src/main/db/index.ts`, which handles BEGIN/COMMIT/
+  ROLLBACK and joins an outer transaction instead of nesting.
+- `node:sqlite` is still marked experimental upstream. If a future Electron upgrade breaks
+  it, the fallback is `better-sqlite3` **plus** installing the C++ build tools — treat
+  that as a reviewed decision, not a quick fix.
+- `sqlite.backup()` exists in this module and is the right tool for Phase 7 backups; it
+  handles WAL correctly, unlike copying the `.db` file while the app is running.

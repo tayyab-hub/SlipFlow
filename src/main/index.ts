@@ -1,7 +1,15 @@
-import { app, BrowserWindow, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron'
 import { join } from 'node:path'
 import { IpcChannels } from '@shared/ipc-channels'
 import type { AppInfo } from '@shared/types'
+import { applyAppIdentity } from './app-identity'
+import { closeDatabase, initialiseDatabase } from './db'
+import { resolveDatabasePath } from './db/paths'
+
+// Before anything else: pins the app name and the userData directory that the database
+// path is derived from. Must not be moved inside whenReady() — Electron resolves paths
+// during startup and would create a stray %APPDATA%\Electron folder first.
+applyAppIdentity()
 
 const isDev = !app.isPackaged
 
@@ -89,8 +97,36 @@ function registerIpcHandlers(): void {
   })
 }
 
-// Single instance only — two copies of the app would later mean two writers on one
-// SQLite file (Phase 2).
+/**
+ * Open the database before the window exists, so the UI never renders against a
+ * database that failed to open.
+ *
+ * A failure here is fatal and unrecoverable from inside the app — the operator's data is
+ * unreachable — so it reports plainly and quits rather than showing a broken dashboard.
+ * Phase 9 owns the friendlier wording.
+ */
+function startDatabase(): boolean {
+  const filePath = resolveDatabasePath()
+
+  try {
+    const db = initialiseDatabase(filePath)
+    console.log(`Database ready (schema v${db.schemaVersion}) at ${filePath}`)
+    return true
+  } catch (error) {
+    dialog.showErrorBox(
+      'StitchFlow cannot open its database',
+      [
+        'The production database could not be opened, so StitchFlow has to close.',
+        '',
+        `Location: ${filePath}`,
+        `Details: ${error instanceof Error ? error.message : String(error)}`
+      ].join('\n')
+    )
+    return false
+  }
+}
+
+// Single instance only — two copies of the app would mean two writers on one SQLite file.
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
@@ -103,8 +139,10 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
-    // Shows as "StitchFlow" in the Windows taskbar / notifications.
-    app.setAppUserModelId('com.factorysoftware.stitchflow')
+    if (!startDatabase()) {
+      app.exit(1)
+      return
+    }
 
     applyContentSecurityPolicy()
     registerIpcHandlers()
@@ -118,4 +156,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
+
+  // Checkpoints the WAL and closes cleanly, so the .db file on disk is complete.
+  app.on('will-quit', closeDatabase)
 }

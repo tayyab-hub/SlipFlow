@@ -10,6 +10,7 @@
     "dev": "electron-vite dev",
     "preview": "electron-vite preview",
     "build": "npm run typecheck && electron-vite build",
+    "db:verify": "electron-vite build && electron out/main/db-verify.js",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit --composite false",
     "typecheck:web": "tsc -p tsconfig.web.json --noEmit --composite false"
