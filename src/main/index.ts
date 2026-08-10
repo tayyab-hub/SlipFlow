@@ -1,10 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, session, shell } from 'electron'
 import { join } from 'node:path'
-import { IpcChannels } from '@shared/ipc-channels'
-import type { AppInfo } from '@shared/types'
 import { applyAppIdentity } from './app-identity'
 import { closeDatabase, initialiseDatabase } from './db'
 import { resolveDatabasePath } from './db/paths'
+import { registerAppHandlers } from './ipc/app'
+import { registerUploadHandlers } from './ipc/upload'
 
 // Before anything else: pins the app name and the userData directory that the database
 // path is derived from. Must not be moved inside whenReady() — Electron resolves paths
@@ -86,15 +86,10 @@ function createMainWindow(): BrowserWindow {
   return window
 }
 
+/** One call per IPC domain — handlers live in src/main/ipc/. */
 function registerIpcHandlers(): void {
-  ipcMain.handle(IpcChannels.appInfo, (): AppInfo => {
-    return {
-      appVersion: app.getVersion(),
-      electronVersion: process.versions.electron,
-      platform: process.platform,
-      packaged: app.isPackaged
-    }
-  })
+  registerAppHandlers()
+  registerUploadHandlers()
 }
 
 /**

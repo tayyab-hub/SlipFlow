@@ -12,10 +12,11 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          // The app entry, plus the standalone DB verification script run by
-          // `npm run db:verify` (electron out/main/db-verify.js).
+          // The app entry, plus the standalone verification scripts run by
+          // `npm run db:verify` and `npm run import:verify`.
           index: resolve(__dirname, 'src/main/index.ts'),
-          'db-verify': resolve(__dirname, 'src/main/db-verify.ts')
+          'db-verify': resolve(__dirname, 'src/main/db-verify.ts'),
+          'import-verify': resolve(__dirname, 'src/main/import-verify.ts')
         }
       }
     },

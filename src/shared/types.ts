@@ -289,3 +289,123 @@ export interface NewProductionItem {
 export type ProductionItemUpdate = Partial<
   Omit<ProductionItem, 'id' | 'batchId' | 'createdAt' | 'updatedAt'>
 >
+
+// ---------------------------------------------------------------------------
+// Upload + column detection (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Which column in a file holds which field. Values are header names exactly as they
+ * appear in the file; `''` means "this file doesn't have that column".
+ */
+export interface FieldMapping {
+  orderId: string
+  sku: string
+  variation: string
+  colour: string
+  size: string
+  quantity: string
+}
+
+export const EMPTY_FIELD_MAPPING: FieldMapping = {
+  orderId: '',
+  sku: '',
+  variation: '',
+  colour: '',
+  size: '',
+  quantity: ''
+}
+
+/** Display order for the manual-mapping screen. */
+export const MAPPABLE_FIELDS = [
+  'sku',
+  'variation',
+  'colour',
+  'size',
+  'quantity',
+  'orderId'
+] as const satisfies readonly (keyof FieldMapping)[]
+
+export type MappableField = (typeof MAPPABLE_FIELDS)[number]
+
+export const FIELD_LABELS: Record<MappableField, string> = {
+  sku: 'SKU',
+  variation: 'Variation',
+  colour: 'Colour',
+  size: 'Size',
+  quantity: 'Quantity',
+  orderId: 'Order ID'
+}
+
+/** Without these two a file cannot be imported at all. */
+export const REQUIRED_MAPPING_FIELDS = ['sku', 'quantity'] as const satisfies readonly MappableField[]
+
+export const FIELD_HINTS: Record<MappableField, string> = {
+  sku: 'The product code the factory recognises',
+  variation: 'Colour and size together, e.g. "Black,M" — split later',
+  colour: 'Only if the file has a separate colour column',
+  size: 'Only if the file has a separate size column',
+  quantity: 'How many units were ordered',
+  orderId: 'Used to spot the same order imported twice'
+}
+
+/** What the manual-mapping screen needs in order to ask the operator. */
+export interface FilePreview {
+  headers: string[]
+  /** First few data rows, so the operator can see what's in each column. */
+  sampleRows: string[][]
+  /** Whatever detection did manage to work out — pre-fills the dropdowns. */
+  suggested: FieldMapping
+  /** Plain-language reason detection wasn't enough. */
+  reason: string
+}
+
+export type UploadStatus =
+  /** Rows are in the database. */
+  | 'imported'
+  /** Nothing was written; the operator has to map the columns. */
+  | 'needs_mapping'
+  /** Could not read the file at all. */
+  | 'failed'
+
+export interface UploadResult {
+  status: UploadStatus
+  fileName: string
+  filePath: string
+  /** Which sheet was used, and what else was in the workbook. */
+  sheetName: string
+  sheetNames: string[]
+  platform: string
+  platformConfidence: number
+  /** Order lines written (or that would be written) — the "detected rows" count. */
+  rowCount: number
+  blankRowsSkipped: number
+  /** Rows whose quantity could not be read as a number; stored as 0 for Phase 5 to flag. */
+  invalidQuantityRows: number
+  /**
+   * Rows whose duplicate hash already exists in the database. Reported only — Phase 4
+   * owns the Ignore / Import Anyway decision.
+   */
+  duplicateRows: number
+  detectionStatus: DetectionStatus
+  importFileId: number | null
+  mapping: FieldMapping
+  /** True when a previously saved mapping recognised this file's layout. */
+  usedSavedMapping: boolean
+  /** True when this upload saved a new mapping for reuse. */
+  mappingRemembered: boolean
+  /** Present only when `status === 'needs_mapping'`. */
+  preview: FilePreview | null
+  message: string
+}
+
+/** Sent when the operator finishes the manual-mapping screen. */
+export interface ApplyMappingRequest {
+  filePath: string
+  mapping: FieldMapping
+  /** Save the mapping so files with the same layout are recognised next time. */
+  remember: boolean
+  /** Label for the saved mapping; ignored when `remember` is false. */
+  mappingName: string
+  platform: string
+}

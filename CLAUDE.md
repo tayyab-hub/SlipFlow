@@ -41,7 +41,7 @@ swap it silently.
 | Components | **shadcn/ui** | Copy-in components under `src/renderer/components/ui/`. Owned by us, editable. `components.json` is configured, so `npx shadcn@latest add <x>` lands in the right place. |
 | Bundler | **electron-vite** (Vite 7) | Builds main / preload / renderer. Output in `out/`. |
 | Database | **SQLite** via **`node:sqlite`** (built in) | Single local file at `%APPDATA%\StitchFlow\stitchflow.db`. Accessed **only** from the Electron main process. **Not** `better-sqlite3` — see §9. |
-| Spreadsheets | **SheetJS (xlsx)** | All Excel import/export. Runs in main process, not the renderer. |
+| Spreadsheets | **SheetJS (xlsx)** | All Excel/CSV import/export. Runs in main process, not the renderer. Installed from **SheetJS's own CDN tarball**, not the npm registry — see §4. |
 | Language | **TypeScript, strict** | `strict: true`. No `any` unless commented with why. |
 
 ---
@@ -61,13 +61,24 @@ Factory_Software/
 ├── tsconfig.node.json         # main + preload + shared (Node libs, no DOM)
 ├── tsconfig.web.json          # renderer + shared (DOM libs)
 ├── out/                       # build output — git-ignored, never edit
+├── samples/                   # FIXED test fixtures — see samples/README.md, never regenerate
 └── src/
     ├── main/                  # Electron main process (Node context)
     │   ├── index.ts           # app lifecycle, window creation, IPC registration
     │   ├── app-identity.ts    # app name + userData path — pins the database location
-    │   ├── db-verify.ts       # `npm run db:verify` entry (second electron-vite input)
+    │   ├── db-verify.ts       # `npm run db:verify` entry
+    │   ├── import-verify.ts   # `npm run import:verify` entry
     │   ├── env.d.ts           # types the `*.sql?raw` imports
-    │   ├── ipc/               # ⬜ one file per IPC domain once index.ts outgrows it
+    │   ├── ipc/               # one file per IPC domain
+    │   │   ├── app.ts
+    │   │   └── upload.ts
+    │   ├── excel/             # SheetJS reading + column/platform detection
+    │   │   ├── column-aliases.ts   # ⚠️ invented alias list — see PROGRESS.md
+    │   │   ├── detect-columns.ts
+    │   │   ├── detect-platform.ts
+    │   │   ├── header-signature.ts # fingerprint that makes a mapping reusable
+    │   │   ├── import-file.ts      # read → detect → persist, in one transaction
+    │   │   └── read-workbook.ts
     │   ├── db/
     │   │   ├── index.ts       # open/close, pragmas, transaction helper, repositories
     │   │   ├── paths.ts       # database + backup locations
@@ -77,20 +88,21 @@ Factory_Software/
     │   │   │   ├── index.ts   #    registry + runner. THE authoritative schema.
     │   │   │   └── 0001_init.sql   # append-only, never edited (see rule 5.1)
     │   │   └── repositories/  #    one file per table; all SQL lives here
-    │   └── excel/             # ⬜ Phase 3 — SheetJS import + export
     ├── preload/
     │   ├── index.ts           # contextBridge surface — the ONLY main↔renderer door
     │   └── index.d.ts         # types the `window.stitchflow` global
     ├── renderer/              # React app (browser context, no Node APIs)
     │   ├── index.html         # Vite entry — renderer root is this folder
     │   ├── main.tsx           # React mount
-    │   ├── App.tsx
+    │   ├── App.tsx            # shell + screen switch (no router — see §5.11)
     │   ├── env.d.ts
     │   ├── styles/
     │   │   └── globals.css    # Tailwind import + all theme tokens
     │   ├── pages/             # one folder per screen
-    │   │   └── dashboard/
+    │   │   ├── dashboard/
+    │   │   └── upload/        # upload-page.tsx + manual-mapping.tsx
     │   ├── components/        # app-level components
+    │   │   ├── upload/
     │   │   └── ui/            # shadcn/ui primitives
     │   ├── hooks/
     │   └── lib/               # renderer-only helpers (utils, formatters)
@@ -136,6 +148,7 @@ npm run typecheck    # both projects  ← run before declaring any task done
 npm run typecheck:node   # main + preload + shared
 npm run typecheck:web    # renderer + shared
 npm run db:verify    # inserts + reads back a row in every table, on a throwaway copy
+npm run import:verify    # runs samples/ through the real import pipeline, on a throwaway copy
 ```
 
 Not configured yet: **`npm run lint`** and **`npm test`**. Deferred to Phase 9 — don't
@@ -143,7 +156,8 @@ reference them as if they exist.
 
 **Definition of done for any code change:** `npm run typecheck` passes and the app still
 launches (actually run it — `npm run dev` — don't infer it from a green typecheck). After
-**any** change to the schema or the repositories, `npm run db:verify` must also pass.
+**any** change to the schema or the repositories, `npm run db:verify` must also pass; after
+any change to parsing, detection or the alias list, so must `npm run import:verify`.
 
 ### Environment gotchas hit already
 
@@ -162,6 +176,11 @@ launches (actually run it — `npm run dev` — don't infer it from a green type
   `electron.vite.config.ts` — a new alias must be added in both places.
 - **`composite` + `--noEmit` conflict**, hence `--composite false` in the typecheck
   scripts. Leave it.
+- **SheetJS comes from `https://cdn.sheetjs.com/...tgz`, not the npm registry.** The
+  registry copy (`xlsx@0.18.5`) is abandoned and carries prototype-pollution and ReDoS
+  advisories; SheetJS ships current builds only from their own CDN. Since spreadsheets are
+  untrusted input (§5.10), the patched build is the one to use. `npm install` therefore
+  needs reachability to that host — it is not a normal registry dependency.
 
 ---
 
@@ -193,6 +212,13 @@ leaving a task unfinished.
    impossible, say so and stop — do not substitute a different task.
 10. **Excel is untrusted input.** Every importer validates and reports bad rows; it never
     partially writes a half-imported sheet. Wrap multi-row imports in a transaction.
+11. **No routing library.** Navigation is screen state in `App.tsx`. Adding react-router
+    (or similar) is a §2/§5.5 decision — ask first.
+12. **Do not change `normaliseHeader()` or `buildHeaderSignature()`** without treating it
+    as a data migration. Saved `column_mappings` rows are keyed on that hash; changing it
+    silently orphans every mapping an operator has already taught the app.
+13. **Do not regenerate the files in `samples/`.** They are the fixed regression fixtures
+    — see samples/README.md.
 
 ---
 
@@ -211,15 +237,15 @@ leaving a task unfinished.
 
 ## 7. Phase tracker
 
-**Current phase: Phase 2 — SQLite database layer ✅ complete**
-**Next phase: Phase 3 — file upload + automatic column detection**
+**Current phase: Phase 3 — file upload + column detection ✅ complete**
+**Next phase: Phase 4 — SKU mapping, grouping, duplicate detection**
 
 | Phase | Goal | Commit tag | Status |
 |---|---|---|---|
 | 0 | Git repo, `.gitignore`, CLAUDE.md, PROGRESS.md | — | ✅ Done |
 | 1 | Electron + React + TS + Tailwind + shadcn scaffold. Empty dashboard: 3 buttons (Upload / Review / Print) + 4 summary cards with placeholder zeros. No logic. | `phase-1-skeleton` | ✅ Done |
 | 2 | SQLite layer. Tables: `batches`, `production_items`, `sku_mappings`, `imported_orders`, `import_files`, `column_mappings`, `settings`. DB at `%APPDATA%\StitchFlow\stitchflow.db`. Basic CRUD per table, nothing UI-facing. | `phase-2-database` | ✅ Done |
-| 3 | File upload (drag-drop + picker). Parse `.xlsx`/`.xls`/`.csv` via SheetJS. Auto-detect SKU/colour/size/quantity columns from the spec's alias list. Show row count + platform per file. Manual-mapping fallback screen, mapping saved for reuse. Also generate the sample marketplace test files (spec §30). | `phase-3-upload-parsing` | ⬜ Not started |
+| 3 | File upload (drag-drop + picker). Parse `.xlsx`/`.xls`/`.csv` via SheetJS. Auto-detect SKU/colour/size/quantity columns from the spec's alias list. Show row count + platform per file. Manual-mapping fallback screen, mapping saved for reuse. Also generate the sample marketplace test files (spec §30). | `phase-3-upload-parsing` | ✅ Done |
 | 4 | SKU Mapping screen (incoming SKU → factory SKU/colour/size/platform + bulk import). Grouping (sum qty by factory SKU+colour+size). Duplicate detection (order ID + SKU + variation + qty hash) with Ignore / Import Anyway prompt. | `phase-4-mapping-grouping` | ⬜ Not started |
 | 5 | Review table (edit SKU/colour/size/qty, delete, add, merge, search/filter/sort). Issues screen (missing SKU/colour/size, invalid qty, unknown mapping, duplicate) with Fix flow. Unresolved items excluded from print until confirmed. | `phase-5-review-issues` | ⬜ Not started |
 | 6 | A4 print preview matching the spec layout (standard table + optional grouped-by-SKU). Print CSS, page-count estimate, native Print, Save PDF. | `phase-6-print` | ⬜ Not started |

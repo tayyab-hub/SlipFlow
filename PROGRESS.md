@@ -9,12 +9,33 @@ every session.
 
 ## Current state
 
-**Phase:** 2 — SQLite database layer
+**Phase:** 3 — file upload + automatic column detection
 **Status:** ✅ Complete, verified against its Definition of Done
-**Next phase:** 3 — file upload + automatic column detection
+**Next phase:** 4 — SKU mapping, grouping, duplicate detection
 **Last updated:** 2026-08-10
 
 ### What works right now (observed, not assumed)
+
+**Upload + detection (Phase 3)**
+
+- Dashboard "Upload Orders" tile opens a real Upload screen: drop zone plus a
+  **Choose files** picker (`.xlsx`, `.xls`, `.csv`).
+- The three sample marketplace files import with the right platform and row counts —
+  confirmed on screen: `tiktok-orders.xlsx` TikTok/12, `shopee-orders.xlsx` Shopee/9,
+  `lazada-orders.csv` Lazada/7, footer total "3 files · 28 order lines".
+- `unknown-format.xlsx` fails detection and opens the **"We need help reading this
+  file"** screen: the reason in plain language, six dropdowns pre-filled with whatever was
+  detected, and a preview table of the first five rows so the operator can see which
+  column is which. Nothing is written to the database until they confirm.
+- Ticking "Remember this layout" saves a `column_mappings` row keyed on a hash of the
+  header row. **Re-uploading the same format then imports silently** — verified by
+  `npm run import:verify`, including that `times_used` increments.
+- `npm run import:verify` passes all 13 checks: per-file platform/row/column assertions,
+  the second-sheet case, the title-row case, the blank-row case, camelCase headers, "a
+  file needing mapping writes nothing", the remembered-mapping case, duplicate-hash
+  reporting, a missing file, and an unsupported extension.
+- Verified the smoke run left the live database untouched afterwards (`import_files`,
+  `imported_orders`, `column_mappings`, `batches` all back to 0).
 
 **Database (Phase 2)**
 
@@ -50,14 +71,27 @@ every session.
 
 ### What does NOT exist yet
 
-No file upload, no parsing, no SKU mapping UI, no review table, no print view, no batch
-creation flow, no settings UI, no installer, no lint, no tests beyond `db:verify`.
+No SKU mapping screen, no grouping, no duplicate prompt, no review table, no print view,
+no batch creation, no settings UI, no installer, no lint, no unit tests.
 
-**The database is not connected to the UI at all** — that is deliberate, Phase 2 was
-explicitly "nothing UI-facing". There are no IPC channels for data yet (`app:info` is
-still the only one), the three action tiles are inert, and the four dashboard counters
-are hard-coded zeros from `EMPTY_DASHBOARD_SUMMARY`. The repositories exist and are
-tested, but nothing calls them except `db-verify.ts`.
+Specific things that will surprise you if you don't know:
+
+- **The four dashboard counters are still hard-coded zeros.** After importing files the
+  dashboard still reads 0 — deliberately. Phase 3's job was to report what it read on the
+  Upload screen; wiring the counters needs the grouping from Phase 4. Don't read the zeros
+  as a bug.
+- **Imported rows are raw, not grouped.** `imported_orders` holds order lines exactly as
+  the marketplace wrote them. Nothing maps them to factory SKUs or sums quantities yet, so
+  `production_items` is still empty and no `batches` row is ever created.
+- **Duplicates are detected but not acted on.** Every row gets its `duplicate_hash`, and
+  `UploadResult.duplicateRows` reports how many already exist, but nothing prompts
+  Ignore / Import Anyway — that's Phase 4.
+- **`rawColour` / `rawSize` are usually empty.** All three sample platforms put colour and
+  size in one `Variation` column (`Black,M`, `Black / M`, `Black:M` — three different
+  separators). Splitting that is Phase 4's problem.
+- **Drag-and-drop was not tested with a real mouse drag.** The code path is there
+  (`webUtils.getPathForFile` via the preload bridge) but automation can't produce an OS
+  drag gesture. The picker path is fully verified. **Worth a manual drag before Phase 4.**
 
 ### Assumptions Claude made (not from a spec — change freely)
 
@@ -80,6 +114,41 @@ The original spec document is **not in this repo**, so these were invented:
    lands.
 6. **Dark-mode tokens exist but nothing activates them** (no `.dark` class is ever set).
    Kept so a Phase 7 theme setting doesn't require redefining all 25 colours.
+
+### ⚠️ The column-alias list is invented — REVIEW IT FIRST
+
+`src/main/excel/column-aliases.ts` is the single most important thing to check in Phase 3.
+
+The brief said "auto-detect … using the alias list from the spec". That spec is not in the
+repo, so **the alias list was written from what TikTok/Shopee/Lazada exports typically look
+like — it is a stand-in, not the real list.** Same for `PLATFORM_SIGNALS`, which decides
+which marketplace a file came from.
+
+Nothing else in the codebase knows any header names, so correcting it is a single-file
+edit: paste the real aliases in, run `npm run import:verify`, done. Detection improves
+everywhere at once.
+
+Other Phase 3 choices that were judgement calls, not requirements:
+
+1. **Detection succeeds only if SKU + Quantity are found, AND either a Variation column or
+   both Colour and Size.** Anything less opens the mapping screen. That threshold is a
+   guess about what makes a file usable.
+2. **`header_signature` is a sha256 of the normalised, de-duplicated, *sorted* header
+   names.** Sorting means a reordered export still matches its saved mapping. Hashing keeps
+   the column a fixed 64 chars. Changing any of this orphans every saved mapping — treated
+   as a hard rule (CLAUDE.md §5.12).
+3. **camelCase headers are split before matching**, so Lazada's `sellerSku` matches the
+   alias `seller_sku`. Without this the Lazada sample needs manual mapping.
+4. **`Seller SKU` beats `SKU ID`** in the alias order, on the assumption the seller's own
+   code is the one the factory recognises and the platform's numeric id is not.
+5. **The sheet with the most rows wins** in a multi-sheet workbook, and the header row is
+   the row with the most filled cells in the first 10. Both are heuristics that handle the
+   sample files' cover sheet and title row.
+6. **Unreadable quantities become 0 and are counted**, not rejected — the row is kept so
+   Phase 5 can flag it rather than the operator silently losing an order line.
+7. **A file needing mapping writes nothing at all.** No `import_files` row, no partial
+   state. Asserted by a test, because the alternative (a half-imported file) is the kind of
+   thing that is very hard to notice later.
 
 ### Schema decisions Claude invented — REVIEW THESE
 
@@ -157,9 +226,20 @@ data. That option disappears once real batches exist.
   move together or not at all.
 - **Bundled libs live in `devDependencies`**; `dependencies` is reserved for native
   runtime modules, of which there are now none. See CLAUDE.md §3.
-- **No router yet** — added in Phase 3, when a second screen exists.
-- Git tags **`phase-1-skeleton`** and **`phase-2-database`** mark those commits.
-  `git checkout <tag>` returns to a known-good state.
+- **No router.** Navigation is `useState<Screen>` in `App.tsx`. Adding react-router would
+  be a new dependency needing sign-off (CLAUDE.md §2/§5.5/§5.11), and two screens don't
+  justify it. Revisit when back/forward history starts to matter.
+- **SheetJS comes from SheetJS's CDN tarball, not npm.** The registry package is abandoned
+  at 0.18.5 with open advisories. See CLAUDE.md §4.
+- **Parsing lives entirely in main.** The renderer never reads a file; drag-and-drop
+  resolves a *path* via `webUtils.getPathForFile` in the preload and sends that. No file
+  bytes cross the bridge.
+- **`header_signature` normalisation is frozen** — see the alias-list section above and
+  CLAUDE.md §5.12.
+- **`samples/` is fixed.** Regenerating those four files destroys their value as regression
+  fixtures (CLAUDE.md §5.13, samples/README.md).
+- Git tags **`phase-1-skeleton`**, **`phase-2-database`** and **`phase-3-upload-parsing`**
+  mark those commits. `git checkout <tag>` returns to a known-good state.
 
 ### Known issues / environment gotchas
 
@@ -192,6 +272,18 @@ data. That option disappears once real batches exist.
    `unresolved_count` are written by callers, not maintained by a trigger. Whoever builds
    the batch-save flow (Phase 5/7) must call `productionItems.totalsForBatch()` and write
    the result, or the history list will show stale numbers.
+10. **`npm install` needs `cdn.sheetjs.com` reachable**, because SheetJS is a URL
+    dependency rather than a registry one. On a machine without access to that host the
+    install fails; there is no registry fallback that isn't the abandoned 0.18.5.
+11. **Drag-and-drop is unverified by automation** — see "What does NOT exist yet". The
+    picker path is covered; the OS drag gesture is not.
+12. **Uploaded files accumulate with no batch.** Every import creates an `import_files` row
+    with `batch_id = NULL`, and the Upload screen lists them on return. Nothing clears them
+    except the per-row delete button, until Phase 4/7 assigns files to batches.
+13. **A stale saved mapping is handled but only shallowly.** If a marketplace renames a
+    column, the saved mapping no longer resolves and the file is sent back to the mapping
+    screen with an explanation. It does not offer to update the existing mapping — the
+    operator would re-save and overwrite it.
 
 ### Useful technique for verifying UI phases
 
@@ -201,31 +293,46 @@ env-gated hook in `createMainWindow` that, on `did-finish-load`, calls
 `executeJavaScript`, then `app.exit(0)`. Remove it before committing — it was used and
 removed in Phase 1, so `out/main/index.js` should stay small (~3.7 kB now).
 
-For database phases the equivalent is `npm run db:verify`, which is permanent — extend it
-rather than writing a throwaway script.
+For database and parsing phases the equivalent is `npm run db:verify` /
+`npm run import:verify`, which are permanent — extend those rather than writing a throwaway
+script.
 
-### Next actions — Phase 3 (upload + column detection)
+**Driving the UI without a mouse.** Phase 3 needed screenshots of a flow that starts with a
+native file dialog. What worked: temporarily make the `upload:pick-files` handler return
+canned paths from an env var, then `executeJavaScript` a click on the real "Choose files"
+button. The whole UI path runs for real; only the OS dialog is stubbed. Both the seam and
+the hook were removed before committing, and the run cleaned up the rows it created via
+`importFiles.remove()` so the live database was left as found — verified afterwards.
 
-1. **Ask for spec §30 and the column-alias list first.** Phase 3 needs the marketplace
-   sample-file definitions and the SKU/colour/size/quantity header aliases. Both are in
-   the missing spec document. Guessing the alias list means guessing the core of the
-   feature — ask, don't invent.
-2. `npm install --save-dev xlsx` (SheetJS). It is bundled by Vite into the main process,
-   so devDependencies is correct — see CLAUDE.md §3.
-3. Parsing runs in **main**, never the renderer (CLAUDE.md §2). New IPC channels go in
-   `src/shared/ipc-channels.ts` and named functions in the preload — this is the phase
-   where the bridge stops being a single `getAppInfo`.
-4. The database side is already built and tested: `importFiles.create/findByHash`,
-   `importedOrders.createMany`, `columnMappings.findBySignature/create/recordUse`. Wrap
-   multi-row imports in `db.transaction(...)` — CLAUDE.md §5.10 requires that a bad row
-   cannot leave a half-imported file behind.
-5. `header_signature` is the mechanism behind "remember this mapping". Decide the
-   normalisation (lowercase, trim, drop punctuation, join with `|`) and keep it stable —
-   if it changes later, every saved mapping stops matching.
-6. Generate the fixed sample TikTok/Shopee/Lazada files this phase, plus one deliberately
-   weird file. Per CLAUDE.md §7 these become permanent regression fixtures — commit them
-   and don't regenerate them later.
-7. `npm run db:verify` must still pass at the end of the phase.
+### Next actions — Phase 4 (SKU mapping, grouping, duplicates)
+
+1. **Splitting the variation string is the first real problem.** The three sample platforms
+   use three separators for the same thing: `Black,M` (TikTok), `Black / M` (Shopee),
+   `Black:M` (Lazada), and the manually mapped file uses a space (`Hitam M`). Decide whether
+   colour/size come from splitting `raw_variation` or from the SKU mapping table itself —
+   the second is more reliable and the schema already supports it
+   (`sku_mappings.factory_colour` / `factory_size`).
+2. **The mapping table is keyed on (incoming_sku, incoming_variation, platform)** with
+   `''` as the wildcard and case-insensitive matching. `skuMappings.findBestMatch()` already
+   implements the precedence and is tested — use it rather than writing new lookup SQL.
+3. **Grouping is code, not a constraint.** `production_items` has no unique index on
+   (batch, sku, colour, size) on purpose (Phase 5 allows hand edits), so the grouping step
+   must sum quantities before inserting.
+4. **Batch totals are stored, not derived.** Whatever creates a batch must call
+   `productionItems.totalsForBatch()` and write `total_items` / `total_units` /
+   `unresolved_count` back onto the `batches` row, or the Phase 7 history list shows stale
+   numbers.
+5. **Duplicate detection is half-built.** Hashes are already written to every row and
+   `importedOrders.findExistingHashes()` works; `UploadResult.duplicateRows` reports the
+   count. What's missing is the Ignore / Import Anyway prompt and setting `is_duplicate`.
+   Default to ignoring, per the phase brief.
+6. **The sample files already contain the test case.** `TEE-BLK-M`, `TEE-WHT-M`,
+   `HOOD-NVY-L`, `POLO-RED-S`, `TEE-BLK-L` appear on all three platforms; `TT-ONLY-CAP`,
+   `SP-ONLY-SOCK` and `LZ-ONLY-BELT` appear on one each and should end up flagged as
+   unmapped. Expected totals: 28 lines, 61 units.
+7. **Wire the dashboard counters** while grouping exists — they are still hard-coded zeros
+   and now look wrong after an import.
+8. `npm run db:verify` **and** `npm run import:verify` must still pass at the end.
 
 ---
 
@@ -363,4 +470,54 @@ been checked, the database would have shipped to the wrong directory.
 **Next:** Phase 3 — upload + column detection. **Ask for the spec's column-alias list and
 §30 sample-file definitions before starting**; the alias list is the core of the feature
 and guessing it wastes the phase.
-**Commit:** tag `phase-2-database`
+**Commit:** `94803f0`, tag `phase-2-database`
+
+## Session 4 — 2026-08-10 — Phase 3
+
+**Built:**
+- `src/main/excel/`: `read-workbook.ts` (SheetJS; sheet choice, header-row search, blank-row
+  handling, friendly errors), `column-aliases.ts` (**invented alias list** + platform
+  signals), `header-signature.ts` (normalisation + the reuse fingerprint),
+  `detect-columns.ts` (two-pass exact-then-fuzzy matching, one column per field),
+  `detect-platform.ts` (scored, with a filename fallback), `import-file.ts` (orchestrates
+  read → detect → persist in a single transaction).
+- IPC split into `src/main/ipc/app.ts` and `src/main/ipc/upload.ts`; five new channels for
+  pick / import / apply-mapping / list / remove, with argument validation on every one.
+- Preload gained named functions for those, plus `pathForDroppedFile` wrapping
+  `webUtils.getPathForFile` (Electron removed `File.path`).
+- Renderer: `App.tsx` became the shell with a screen switch; `pages/upload/upload-page.tsx`,
+  `pages/upload/manual-mapping.tsx`, `components/upload/{drop-zone,platform-badge}.tsx`,
+  `components/ui/badge.tsx`. `AppHeader` gained a back button and breadcrumb.
+- `src/shared/types.ts`: `FieldMapping`, `FilePreview`, `UploadResult`,
+  `ApplyMappingRequest`, and the field labels/hints shared with the mapping screen.
+- `samples/` — four fixed fixtures plus `generate-samples.mjs` and a README explaining why
+  they must never be regenerated.
+- `src/main/import-verify.ts` + `npm run import:verify` (third electron-vite main entry).
+
+**Verified:** `npm run typecheck` clean. `npm run import:verify` 13/13 pass.
+`npm run db:verify` still 11/11 (no Phase 2 regression). Launched the app and drove the real
+UI: dashboard tile → Upload screen → picker → three files listed as TikTok/12, Shopee/9,
+Lazada/7 with "3 files · 28 order lines"; then the awkward file opening the "We need help
+reading this file" screen with dropdowns and a data preview. Confirmed the live database was
+left empty afterwards.
+
+**Not done / left:** Drag-and-drop is implemented but only the picker path was verified —
+an OS drag gesture can't be automated, so **worth one manual drag**. Dashboard counters
+still hard-coded zeros (Phase 4). Colour/size still unsplit from the variation string
+(Phase 4). Duplicates reported but not prompted (Phase 4).
+
+**Known issues:** Items 10–13 in "Known issues" above are new: the CDN dependency on
+`cdn.sheetjs.com`, unverified drag-and-drop, uploaded files accumulating with no batch, and
+only shallow handling of a saved mapping going stale.
+
+**Decisions:** No routing library — screen state in `App.tsx`. SheetJS from the vendor CDN
+rather than the abandoned registry package. Parsing entirely in main; only paths cross the
+bridge, never file bytes. `header_signature` normalisation is now frozen (CLAUDE.md §5.12).
+A file that needs mapping writes nothing at all.
+
+**Next:** Phase 4 — SKU mapping, grouping, duplicate detection. **Review
+`src/main/excel/column-aliases.ts` first** — it is invented, and everything downstream
+inherits its mistakes. Then decide whether colour/size come from splitting the variation
+string or from the mapping table (the schema supports the latter, and three platforms use
+three different separators).
+**Commit:** tag `phase-3-upload-parsing`
