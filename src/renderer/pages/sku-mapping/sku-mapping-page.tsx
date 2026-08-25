@@ -4,10 +4,10 @@ import type { NewSkuMapping, SkuMapping } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import type { Screen } from '@/App'
+import type { Navigate } from '@/App'
 
 interface SkuMappingPageProps {
-  onNavigate: (screen: Screen) => void
+  onNavigate: Navigate
 }
 
 const EMPTY_FORM: NewSkuMapping = {

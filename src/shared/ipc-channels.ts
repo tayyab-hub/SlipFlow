@@ -19,7 +19,15 @@ export const IpcChannels = {
   skuMappingsRemove: 'sku-mappings:remove',
   skuMappingsBulkImport: 'sku-mappings:bulk-import',
 
-  batchesCreateFromPending: 'batches:create-from-pending'
+  batchesCreateFromPending: 'batches:create-from-pending',
+  batchesList: 'batches:list',
+  batchesGetById: 'batches:get-by-id',
+
+  productionItemsListByBatch: 'production-items:list-by-batch',
+  productionItemsUpdate: 'production-items:update',
+  productionItemsCreate: 'production-items:create',
+  productionItemsRemove: 'production-items:remove',
+  productionItemsMerge: 'production-items:merge'
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

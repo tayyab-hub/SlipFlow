@@ -9,12 +9,41 @@ every session.
 
 ## Current state
 
-**Phase:** 4 — SKU mapping, grouping, duplicate detection
+**Phase:** 5 — production review + issue handling
 **Status:** ✅ Complete, verified against its Definition of Done
-**Next phase:** 5 — review table, issues screen
+**Next phase:** 6 — A4 print preview
 **Last updated:** 2026-08-25
 
 ### What works right now (observed, not assumed)
+
+**Production review + issue handling (Phase 5)**
+
+- A **Review Production** screen exists: opened from the Dashboard tile (most recently
+  created batch) or directly from the Upload screen's grouping banner via a new
+  **Review this batch** button (the specific batch just created). Confirmed on screen:
+  navigating from each entry point loads the right batch's real data.
+- The table shows every `production_item` in the batch with search (by factory SKU),
+  a status filter (defaults to **Needs Review** when the batch has unresolved rows),
+  and a sort control. Confirmed on screen grouping the three unmapped sample files: "18
+  lines · 61 units · 18 need review", filtered view showing all 18 `unknown_mapping`
+  rows with their issue notes ("No SKU mapping for …").
+- **Edit** (pencil icon) swaps a row into inline `<input>` fields. Saving always sends
+  the edited values plus `isResolved: true, issueType: '', issueNote: ''` — editing a
+  row **is** how you fix it, whether it had an issue or not. Confirmed on screen: fixing
+  one of the 18 unmapped rows dropped "18 need review" to "17 need review" and the row
+  moved out of the Needs Review filter — the exact Phase 5 Definition of Done.
+- **Delete**, **Add row** (manual entry, always created resolved), and **Merge selected**
+  (checkbox-select ≥2 rows, sums quantity, unions source platforms, carries the first
+  issue forward if not every merged row was clean) all work and keep the batch's stored
+  totals in step via a new `recomputeBatchTotals()` helper called after every mutation.
+- `npm run review:verify` passes all 10 checks: builds a batch with 2–3 intentionally
+  broken rows directly through the repositories (`missing_sku`, `invalid_quantity`,
+  `unknown_mapping`), confirms they — and only they — appear in `listUnresolved()`,
+  fixes one and confirms it moves to `listPrintable()` while stored totals stay in sync,
+  then exercises merge/create/remove the same way.
+- `npm run db:verify` (11/11), `npm run import:verify` (13/13) and
+  `npm run grouping:verify` (11/11) still pass — Phase 5 added no schema change and no
+  repository method whose existing behaviour changed.
 
 **SKU mapping, grouping, duplicates (Phase 4)**
 
@@ -113,17 +142,29 @@ every session.
 
 ### What does NOT exist yet
 
-No review table, no issues-fix flow, no print view, no history/batches screen, no
-settings UI, no installer, no lint, no unit tests.
+No print view, no history/batches screen, no settings UI, no installer, no lint, no
+unit tests.
 
 Specific things that will surprise you if you don't know:
 
-- **`production_items` has no editing UI yet.** Grouping creates the rows and flags
-  issues, but there is nowhere to fix a flagged row, edit a quantity, merge two lines, or
-  manually add one — that is Phase 5's "Review table" and "Issues screen" in full.
 - **One button groups *everything* pending into *one* batch.** There is no batch picker —
   "Group into production batch" always takes every currently-unassigned import file.
-  Curating what goes into which batch is Phase 5/7 territory.
+  Curating what goes into which batch is Phase 7 territory (`createBatchFromPendingFiles`
+  already accepts an optional `importFileIds` param for this — nothing calls it yet).
+- **The Review screen only ever shows one batch** — the one just created, or (via the
+  Dashboard tile) the most recently created one. There is no way yet to pick an older
+  batch; that needs Phase 7's history screen.
+- **`missing_colour` / `missing_size` / `duplicate` are declared issue types that
+  nothing currently sets.** Colour/size come from the SKU mapping now (Phase 4), so a
+  blank one is treated as deliberate (e.g. a one-size item), not an error; and duplicate
+  order lines are excluded from grouping entirely rather than ever becoming a flagged
+  `production_item`. The Review screen's issue-label map (`ISSUE_LABELS` in
+  `review-page.tsx`) covers all six for when/if that changes, but only three are
+  currently reachable: `missing_sku`, `invalid_quantity`, `unknown_mapping`.
+- **Merge's "clean only if every merged row was clean" rule** means merging a clean row
+  into an issue row keeps the issue (carries the first non-empty `issue_type`/`issue_note`
+  forward) — it does not average out or clear it. Deliberate: merging should never make a
+  real problem disappear silently.
 - **Batch numbers are a timestamp placeholder** (`B20260825-143022`), not the real
   human-friendly numbering scheme — that's explicitly deferred to Phase 7 (see
   PROGRESS.md's Phase 2 schema notes, which flagged this from the start).
@@ -298,9 +339,18 @@ data. That option disappears once real batches exist.
   file into one new batch.** There is no partial-selection API yet; add one deliberately
   in Phase 5/7 rather than assuming `createBatchFromPendingFiles`'s optional
   `importFileIds` param (present but unused by the IPC layer) is exercised anywhere.
-- Git tags **`phase-1-skeleton`**, **`phase-2-database`**, **`phase-3-upload-parsing`**
-  and **`phase-4-mapping-grouping`** mark those commits. `git checkout <tag>` returns to a
-  known-good state.
+- **Editing a `production_item` always resolves it** — the Review screen's Save action
+  sends `isResolved: true, issueType: '', issueNote: ''` alongside whatever fields
+  changed, unconditionally. There is no "edit without resolving" path; if Phase 6/7 ever
+  needs one, that's a new, deliberate UI affordance, not a tweak to the existing Save.
+- **Every mutation to a batch's `production_items` must call
+  `recomputeBatchTotals()`** (`src/main/production/review-items.ts`) afterward — update,
+  create, remove, merge. This is the same "stored totals must be kept in step" rule from
+  Phase 4, now enforced at every one of Phase 5's five new IPC handlers, not just batch
+  creation.
+- Git tags **`phase-1-skeleton`**, **`phase-2-database`**, **`phase-3-upload-parsing`**,
+  **`phase-4-mapping-grouping`** and **`phase-5-review-issues`** mark those commits.
+  `git checkout <tag>` returns to a known-good state.
 
 ### Known issues / environment gotchas
 
@@ -365,35 +415,26 @@ button. The whole UI path runs for real; only the OS dialog is stubbed. Both the
 the hook were removed before committing, and the run cleaned up the rows it created via
 `importFiles.remove()` so the live database was left as found — verified afterwards.
 
-### Next actions — Phase 5 (review table, issues screen)
+### Next actions — Phase 6 (A4 print preview)
 
-1. **There is no editing UI for `production_items` yet.** Phase 4 only ever creates rows
-   (via grouping) — Phase 5 needs update/delete/add/merge, all through new IPC handlers
-   in a new `src/main/ipc/production.ts` addition (the file already exists for
-   `batchesCreateFromPending`; extend it rather than creating a second production IPC
-   file).
-2. **`productionItems.listUnresolved(batchId)` and `.listPrintable(batchId)` already
-   exist and are tested** (`db:verify`) — the Issues screen and the eventual print view
-   should read from these rather than filtering `listByBatch` client-side.
-3. **Issue types already on the rows**: `missing_sku`, `unknown_mapping`,
-   `invalid_quantity` are all produced by Phase 4's grouping today (`missing_colour` /
-   `missing_size` / `duplicate` are declared in the schema but nothing sets them yet —
-   decide in Phase 5 whether they're still needed given colour/size now come from the
-   mapping, not from parsing).
-4. **A batch currently has no picker/curation UI** — grouping always consumes every
-   pending file into one batch (`production/group-into-batch.ts`). If Phase 5 needs the
-   operator to choose which files go into which batch, that's new UI on top of
-   `createBatchFromPendingFiles`'s existing (currently unused) `importFileIds` param.
-5. **The sample files' expected shape, for regression checks**: with the five shared
-   SKUs mapped, `TEE-BLK-M` = 16 units, `TEE-BLK-L` = 6, `TEE-WHT-M` = 9, `HOOD-NVY-L` =
-   11, `POLO-RED-S` = 8 (61 units, 8 lines total, 3 unresolved). `npm run grouping:verify`
-   is the permanent fixture for this — extend it rather than writing a new script.
-6. **Dashboard counters are global, not batch-scoped** (`app:dashboard-summary` in
-   `src/main/ipc/app.ts`). If Phase 5 introduces a "current batch" concept, decide
-   whether the counters should follow it — right now "Items to Produce" / "Needs Review"
-   sum across every batch that ever existed.
-7. `npm run db:verify`, `npm run import:verify` **and** `npm run grouping:verify` must
-   still pass at the end.
+1. **`productionItems.listPrintable(batchId)` is exactly what the print view should
+   read from** — resolved and issue-free, already ordered by `sort_order, factory_sku,
+   colour, size, id`. It's existed and been tested since Phase 2; Phase 5 just finally
+   gave the operator a way to make everything in a batch reach that state.
+2. **There is still no batch-picker/history screen.** Same constraint Phase 5 worked
+   within — Print will need the same "most recent batch, or the one just handled"
+   navigation pattern (`App.tsx`'s `Navigate` type already threads a `batchId` through;
+   reuse it rather than inventing a second mechanism) until Phase 7 adds real history.
+3. **`batches.markPrinted(id)`** already exists (sets `status: 'printed'`,
+   `printed_at`) and is tested — call it once printing actually happens, not before.
+4. **The spec's ASCII print layout mockup is not in this repo** (CLAUDE.md §8) — ask for
+   it before guessing the A4 layout, same caution as Phase 3's column-alias list.
+5. **Unresolved items must stay excluded from print** — `listPrintable()` already
+   enforces this at the query level, so the print view should never need its own
+   resolved/issue filtering logic; if a batch still has unresolved rows, decide whether
+   Phase 6 blocks printing outright or prints only the resolved subset with a warning.
+6. `npm run db:verify`, `npm run import:verify`, `npm run grouping:verify` **and**
+   `npm run review:verify` must still pass at the end.
 
 ---
 
@@ -648,3 +689,67 @@ above: there is currently no way to edit, delete, add, or merge a `production_it
 the Issues screen should read from the already-tested `listUnresolved()` /
 `listPrintable()` repository methods rather than filtering client-side.
 **Commit:** tag `phase-4-mapping-grouping`
+
+## Session 6 — 2026-08-25 — Phase 5
+
+**Built:**
+- `src/main/production/review-items.ts` — `recomputeBatchTotals()` (the "stored totals
+  must be kept in step" rule, now called after every mutation, not just batch creation)
+  and `mergeProductionItems()` (sums quantity, unions `source_platforms`, keeps the
+  earliest row's SKU/colour/size, carries the first issue forward unless every merged
+  row was clean).
+- `src/main/ipc/production.ts` extended with six handlers:
+  `productionItemsListByBatch/Update/Create/Remove/Merge` and `batchesList`/
+  `batchesGetById`. No new repository methods were needed — Phase 4 already built
+  `listByBatch`/`listPrintable`/`listUnresolved`/`update`/`create`/`remove`; Phase 5 is
+  mostly IPC exposure plus the one new merge orchestration.
+- Renderer: `pages/review/review-page.tsx` (new) — batch header with live totals,
+  search/filter/sort toolbar, a table with inline edit-in-place rows, per-row Edit/
+  Delete, checkbox multi-select with a Merge button, and a standalone Add-row form
+  reusing the same field component. `App.tsx`'s `Screen`/navigation became a proper
+  `Navigate` type (`(screen, batchId?) => void`) so Upload's grouping banner and the
+  Dashboard tile can both open Review — the banner opens the batch just created, the
+  tile falls back to the most recently created one.
+- `src/main/review-verify.ts` + `npm run review:verify` — builds its scenario directly
+  through the repositories (no spreadsheet needed, this phase never touches parsing).
+- Dashboard's "Review Production" tile now navigates for real instead of showing a
+  "Phase 5" placeholder notice.
+
+**Verified:** `npm run typecheck` clean. `npm run db:verify` 11/11, `npm run
+import:verify` 13/13, `npm run grouping:verify` 11/11 — all unchanged, no regressions.
+New `npm run review:verify` 10/10, including the exact Definition-of-Done sequence:
+create a batch with 3 intentionally broken rows (`missing_sku`, `invalid_quantity`,
+`unknown_mapping`) plus 2 clean ones, confirm exactly the three appear in
+`listUnresolved()`, fix one via the same update shape the UI's Save button sends,
+confirm it now appears in `listPrintable()` and the batch's stored totals stay in sync.
+Drove the real app end-to-end via the same temporary, fully-reverted
+screenshot/`executeJavaScript` technique as Phase 4 (confirmed via `git diff` showing
+zero residue in `index.ts`/`upload.ts` afterward): grouped the three sample files with
+no SKU mappings (18 lines / 61 units / 18 need review, all `unknown_mapping`), opened
+Review from the grouping banner, and — captured on screen — fixing one row dropped the
+count from **18 need review to 17**, with the row visibly leaving the Needs Review
+filter. Also confirmed merge, add, and delete each complete successfully with totals
+updating (some individual screenshots in that longer chain landed on a transient
+"Loading…" frame due to the harness's own polling timing, not an application fault —
+the underlying behaviour for all of those is what `review-verify.ts` proves
+deterministically). Confirmed via the app's own entry point that the live database was
+back to empty afterward.
+
+**Not done / left:** No batch-picker/history screen (Phase 7) — Review always shows one
+batch, either the one just created or the most recent. `missing_colour` / `missing_size`
+/ `duplicate` issue types remain declared but unreachable given Phase 4's design
+(colour/size from the mapping; duplicates excluded before grouping) — the Review
+screen's issue-label map covers all six regardless, for if that ever changes.
+
+**Known issues:** None new.
+
+**Decisions:** Editing a `production_item` always resolves it — Save sends
+`isResolved: true, issueType: '', issueNote: ''` unconditionally alongside the edited
+fields, for both issue rows and already-clean rows. Merging is clean only if every
+merged row was clean; otherwise the first issue is carried forward, never silently
+dropped. Every mutation to a batch's items recomputes and re-stores the batch totals.
+
+**Next:** Phase 6 — A4 print preview. Start from "Next actions — Phase 6" above:
+`listPrintable()` is the query to build the print view from, and the spec's ASCII
+layout mockup isn't in this repo — ask for it rather than guessing the layout.
+**Commit:** tag `phase-5-review-issues`

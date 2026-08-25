@@ -3,11 +3,15 @@ import { IpcChannels } from '@shared/ipc-channels'
 import type {
   AppInfo,
   ApplyMappingRequest,
+  Batch,
   BatchGroupingResult,
   BulkImportSkuMappingsResult,
   DashboardSummary,
   ImportFile,
+  NewProductionItem,
   NewSkuMapping,
+  ProductionItem,
+  ProductionItemUpdate,
   SkuMapping,
   SkuMappingUpdate,
   UploadResult
@@ -61,6 +65,27 @@ const api = {
   /** Groups every currently-pending upload into one new production batch. */
   createBatchFromPending: (): Promise<BatchGroupingResult> =>
     ipcRenderer.invoke(IpcChannels.batchesCreateFromPending),
+
+  listBatches: (options?: { limit?: number }): Promise<Batch[]> =>
+    ipcRenderer.invoke(IpcChannels.batchesList, options ?? {}),
+
+  getBatch: (id: number): Promise<Batch | null> =>
+    ipcRenderer.invoke(IpcChannels.batchesGetById, id),
+
+  listProductionItems: (batchId: number): Promise<ProductionItem[]> =>
+    ipcRenderer.invoke(IpcChannels.productionItemsListByBatch, batchId),
+
+  updateProductionItem: (id: number, changes: ProductionItemUpdate): Promise<ProductionItem | null> =>
+    ipcRenderer.invoke(IpcChannels.productionItemsUpdate, { id, changes }),
+
+  createProductionItem: (input: NewProductionItem): Promise<ProductionItem> =>
+    ipcRenderer.invoke(IpcChannels.productionItemsCreate, input),
+
+  removeProductionItem: (id: number): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.productionItemsRemove, id),
+
+  mergeProductionItems: (batchId: number, ids: number[]): Promise<ProductionItem> =>
+    ipcRenderer.invoke(IpcChannels.productionItemsMerge, { batchId, ids }),
 
   /**
    * Resolves a dropped `File` to its path on disk.

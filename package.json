@@ -13,6 +13,7 @@
     "db:verify": "electron-vite build && electron out/main/db-verify.js",
     "import:verify": "electron-vite build && electron out/main/import-verify.js",
     "grouping:verify": "electron-vite build && electron out/main/grouping-verify.js",
+    "review:verify": "electron-vite build && electron out/main/review-verify.js",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit --composite false",
     "typecheck:web": "tsc -p tsconfig.web.json --noEmit --composite false"

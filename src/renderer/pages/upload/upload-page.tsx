@@ -3,6 +3,7 @@ import {
   CircleAlert,
   CircleCheck,
   CircleHelp,
+  ClipboardList,
   FileSpreadsheet,
   Layers,
   Tags,
@@ -14,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropZone } from '@/components/upload/drop-zone'
 import { PlatformBadge } from '@/components/upload/platform-badge'
-import type { Screen } from '@/App'
+import type { Navigate } from '@/App'
 import { ManualMapping } from './manual-mapping'
 
 /** One line in the file list, from either this session's uploads or an earlier one. */
@@ -69,7 +70,7 @@ function entryFromImportFile(file: ImportFile): FileEntry {
 }
 
 interface UploadPageProps {
-  onNavigate: (screen: Screen) => void
+  onNavigate: Navigate
 }
 
 export function UploadPage({ onNavigate }: UploadPageProps) {
@@ -219,7 +220,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-success/15 text-success">
             <Layers className="size-4.5" />
           </div>
-          <div className="space-y-0.5 text-sm">
+          <div className="min-w-0 flex-1 space-y-0.5 text-sm">
             <p className="font-medium text-success">
               Batch {groupingResult.batch.batchNumber} created
             </p>
@@ -234,6 +235,14 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
                 ` · ${groupingResult.duplicateRowsExcluded} duplicate row${groupingResult.duplicateRowsExcluded === 1 ? '' : 's'} excluded`}
             </p>
           </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => onNavigate('review', groupingResult.batch.id)}
+          >
+            <ClipboardList />
+            Review this batch
+          </Button>
         </Card>
       )}
 
