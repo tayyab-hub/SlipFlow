@@ -97,6 +97,14 @@ export function registerUploadHandlers(): void {
     // imported_orders rows go with it — ON DELETE CASCADE.
     return getDatabase().importFiles.remove(id)
   })
+
+  ipcMain.handle(IpcChannels.uploadUnmarkDuplicates, (_event, importFileId: unknown): number => {
+    if (typeof importFileId !== 'number' || !Number.isInteger(importFileId)) {
+      throw new TypeError('importFileId must be an integer')
+    }
+    // "Import Anyway" — the operator has seen the warning and wants these rows counted.
+    return getDatabase().importedOrders.clearDuplicateForFile(importFileId)
+  })
 }
 
 function openDialogOptions(): Electron.OpenDialogOptions {

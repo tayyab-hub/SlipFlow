@@ -1,0 +1,4 @@
+Incoming SKU,Incoming Variation,Platform,Factory SKU,Factory Colour,Factory Size,Notes
+TT-ONLY-CAP,,tiktok,CAP-BLK-OS,Grey,One Size,Bulk import test row
+SP-ONLY-SOCK,,shopee,SOCK-GRY-OS,Grey,Free,Bulk import test row
+LZ-ONLY-BELT,,lazada,,Brown,Free,Missing factory SKU on purpose

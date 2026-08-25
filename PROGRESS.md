@@ -9,12 +9,54 @@ every session.
 
 ## Current state
 
-**Phase:** 3 — file upload + automatic column detection
+**Phase:** 4 — SKU mapping, grouping, duplicate detection
 **Status:** ✅ Complete, verified against its Definition of Done
-**Next phase:** 4 — SKU mapping, grouping, duplicate detection
-**Last updated:** 2026-08-10
+**Next phase:** 5 — review table, issues screen
+**Last updated:** 2026-08-25
 
 ### What works right now (observed, not assumed)
+
+**SKU mapping, grouping, duplicates (Phase 4)**
+
+- A **SKU Mappings** screen (linked from the Upload screen header) lets the operator add
+  a mapping by hand (incoming SKU → factory SKU/colour/size, with variation and platform
+  optional wildcards) or **bulk import** one from a spreadsheet via a file picker.
+  Confirmed on screen: adding one writes to `sku_mappings` and appears in the table
+  immediately; the bulk-import fixture (`samples/sku-mappings-bulk.csv`) reports 2
+  imported + 1 skipped row.
+- **Colour/size come from the mapping, never from parsing `raw_variation`.** One mapping
+  row per factory item (wildcard variation/platform) matches the same SKU regardless of
+  which of the three separators (`Black,M` / `Black / M` / `Black:M`) the source platform
+  used — this is how the three-separator problem flagged after Phase 3 got solved.
+- **"Group into production batch"** on the Upload screen (visible once files are
+  pending) sums quantities into `production_items` by factory SKU + colour + size across
+  every uploaded file, creates a `batches` row, assigns the source files/orders to it,
+  and writes the stored totals. Confirmed on screen: uploading the three sample files
+  with no mappings produced "18 production lines · 61 units · 18 need review (18
+  unmapped SKUs)"; `npm run grouping:verify` confirms that with the five shared SKUs
+  mapped, `TEE-BLK-M` alone sums to 16 units across TikTok+Shopee+Lazada.
+- **Duplicate rows default to ignored.** A row whose `duplicate_hash` already exists in
+  the database is stored with `is_duplicate = 1` at import time (not just reported), and
+  grouping excludes flagged rows from every sum. The Upload screen shows a per-file
+  banner ("N of M rows match orders already imported — ignored by default") with an
+  **Import anyway** button that clears the flag for that file. Confirmed by
+  `grouping:verify`: re-uploading `tiktok-orders.xlsx` flags all 12 rows, and they are
+  excluded from the batch's totals unless "Import anyway" is used.
+- **Unmapped SKUs are flagged, not dropped.** A row whose SKU has no mapping becomes its
+  own `production_items` row with `issue_type = 'unknown_mapping'` and
+  `is_resolved = 0`, so nothing is silently lost — Phase 5 owns actually fixing these.
+- **Dashboard counters are now real**, not the Phase 1 placeholder zeros: Orders
+  Imported, Items to Produce and Needs Review are computed live; Batches Today reuses
+  the existing `countCreatedOn`. Confirmed on screen going Dashboard → Upload → group →
+  back to Dashboard: 0/0/0/0 became 28/61/18/1.
+- `npm run grouping:verify` passes all 11 checks: import + map + group, the exact
+  `TEE-BLK-M` = 16 units assertion, the other four shared SKUs, the three platform-only
+  SKUs landing as `unknown_mapping`, stored batch totals matching computed totals, and
+  the bulk SKU-mapping import's partial-failure reporting.
+- `npm run db:verify` (11/11) and `npm run import:verify` (13/13) still pass — this
+  phase added repository methods and one behavioural change to `import-file.ts` (rows
+  are now flagged `is_duplicate` at insert instead of merely counted) but changed no
+  existing assertion's expected outcome.
 
 **Upload + detection (Phase 3)**
 
@@ -71,27 +113,31 @@ every session.
 
 ### What does NOT exist yet
 
-No SKU mapping screen, no grouping, no duplicate prompt, no review table, no print view,
-no batch creation, no settings UI, no installer, no lint, no unit tests.
+No review table, no issues-fix flow, no print view, no history/batches screen, no
+settings UI, no installer, no lint, no unit tests.
 
 Specific things that will surprise you if you don't know:
 
-- **The four dashboard counters are still hard-coded zeros.** After importing files the
-  dashboard still reads 0 — deliberately. Phase 3's job was to report what it read on the
-  Upload screen; wiring the counters needs the grouping from Phase 4. Don't read the zeros
-  as a bug.
-- **Imported rows are raw, not grouped.** `imported_orders` holds order lines exactly as
-  the marketplace wrote them. Nothing maps them to factory SKUs or sums quantities yet, so
-  `production_items` is still empty and no `batches` row is ever created.
-- **Duplicates are detected but not acted on.** Every row gets its `duplicate_hash`, and
-  `UploadResult.duplicateRows` reports how many already exist, but nothing prompts
-  Ignore / Import Anyway — that's Phase 4.
-- **`rawColour` / `rawSize` are usually empty.** All three sample platforms put colour and
-  size in one `Variation` column (`Black,M`, `Black / M`, `Black:M` — three different
-  separators). Splitting that is Phase 4's problem.
+- **`production_items` has no editing UI yet.** Grouping creates the rows and flags
+  issues, but there is nowhere to fix a flagged row, edit a quantity, merge two lines, or
+  manually add one — that is Phase 5's "Review table" and "Issues screen" in full.
+- **One button groups *everything* pending into *one* batch.** There is no batch picker —
+  "Group into production batch" always takes every currently-unassigned import file.
+  Curating what goes into which batch is Phase 5/7 territory.
+- **Batch numbers are a timestamp placeholder** (`B20260825-143022`), not the real
+  human-friendly numbering scheme — that's explicitly deferred to Phase 7 (see
+  PROGRESS.md's Phase 2 schema notes, which flagged this from the start).
+- **`rawColour` / `rawSize` are still usually empty and unused for production.** All three
+  sample platforms put colour and size in one `Variation` column with three different
+  separators (`Black,M`, `Black / M`, `Black:M`). Phase 4 deliberately never parses that
+  column — colour/size come from the `sku_mappings` row instead, which is what makes the
+  separator differences a non-issue. `raw_variation` stays as audit-trail-only text.
 - **Drag-and-drop was not tested with a real mouse drag.** The code path is there
   (`webUtils.getPathForFile` via the preload bridge) but automation can't produce an OS
-  drag gesture. The picker path is fully verified. **Worth a manual drag before Phase 4.**
+  drag gesture. The picker path is fully verified, including through Phase 4's grouping.
+  **Still worth a manual drag before Phase 5.**
+- **Dashboard's "Items to Produce" / "Needs Review" are global counters**, not scoped to
+  the most recent batch — there is no concept of "current batch" in the UI yet.
 
 ### Assumptions Claude made (not from a spec — change freely)
 
@@ -237,9 +283,24 @@ data. That option disappears once real batches exist.
 - **`header_signature` normalisation is frozen** — see the alias-list section above and
   CLAUDE.md §5.12.
 - **`samples/` is fixed.** Regenerating those four files destroys their value as regression
-  fixtures (CLAUDE.md §5.13, samples/README.md).
-- Git tags **`phase-1-skeleton`**, **`phase-2-database`** and **`phase-3-upload-parsing`**
-  mark those commits. `git checkout <tag>` returns to a known-good state.
+  fixtures (CLAUDE.md §5.13, samples/README.md). `sku-mappings-bulk.csv`, added in Phase 4,
+  is now equally fixed — it's a new file, not a regeneration of the original four.
+- **SKU mapping matching is by incoming SKU alone, wildcard variation/platform, by
+  convention — not enforced by the schema.** Nothing stops an operator (or a later phase)
+  from creating a platform- or variation-specific override; `findBestMatch`'s precedence
+  (specific beats wildcard) already handles that correctly. But the *grouping* code never
+  parses `raw_variation` itself, so a mapping is the only way colour/size reach a
+  production item.
+- **Duplicate rows are flagged `is_duplicate = 1` at import time**, not left for grouping
+  to re-detect. Grouping just excludes flagged rows. "Import Anyway" clears the flag via
+  `importedOrders.clearDuplicateForFile` — it does not re-run hash detection.
+- **`production/group-into-batch.ts` always groups every currently-unassigned import
+  file into one new batch.** There is no partial-selection API yet; add one deliberately
+  in Phase 5/7 rather than assuming `createBatchFromPendingFiles`'s optional
+  `importFileIds` param (present but unused by the IPC layer) is exercised anywhere.
+- Git tags **`phase-1-skeleton`**, **`phase-2-database`**, **`phase-3-upload-parsing`**
+  and **`phase-4-mapping-grouping`** mark those commits. `git checkout <tag>` returns to a
+  known-good state.
 
 ### Known issues / environment gotchas
 
@@ -304,35 +365,35 @@ button. The whole UI path runs for real; only the OS dialog is stubbed. Both the
 the hook were removed before committing, and the run cleaned up the rows it created via
 `importFiles.remove()` so the live database was left as found — verified afterwards.
 
-### Next actions — Phase 4 (SKU mapping, grouping, duplicates)
+### Next actions — Phase 5 (review table, issues screen)
 
-1. **Splitting the variation string is the first real problem.** The three sample platforms
-   use three separators for the same thing: `Black,M` (TikTok), `Black / M` (Shopee),
-   `Black:M` (Lazada), and the manually mapped file uses a space (`Hitam M`). Decide whether
-   colour/size come from splitting `raw_variation` or from the SKU mapping table itself —
-   the second is more reliable and the schema already supports it
-   (`sku_mappings.factory_colour` / `factory_size`).
-2. **The mapping table is keyed on (incoming_sku, incoming_variation, platform)** with
-   `''` as the wildcard and case-insensitive matching. `skuMappings.findBestMatch()` already
-   implements the precedence and is tested — use it rather than writing new lookup SQL.
-3. **Grouping is code, not a constraint.** `production_items` has no unique index on
-   (batch, sku, colour, size) on purpose (Phase 5 allows hand edits), so the grouping step
-   must sum quantities before inserting.
-4. **Batch totals are stored, not derived.** Whatever creates a batch must call
-   `productionItems.totalsForBatch()` and write `total_items` / `total_units` /
-   `unresolved_count` back onto the `batches` row, or the Phase 7 history list shows stale
-   numbers.
-5. **Duplicate detection is half-built.** Hashes are already written to every row and
-   `importedOrders.findExistingHashes()` works; `UploadResult.duplicateRows` reports the
-   count. What's missing is the Ignore / Import Anyway prompt and setting `is_duplicate`.
-   Default to ignoring, per the phase brief.
-6. **The sample files already contain the test case.** `TEE-BLK-M`, `TEE-WHT-M`,
-   `HOOD-NVY-L`, `POLO-RED-S`, `TEE-BLK-L` appear on all three platforms; `TT-ONLY-CAP`,
-   `SP-ONLY-SOCK` and `LZ-ONLY-BELT` appear on one each and should end up flagged as
-   unmapped. Expected totals: 28 lines, 61 units.
-7. **Wire the dashboard counters** while grouping exists — they are still hard-coded zeros
-   and now look wrong after an import.
-8. `npm run db:verify` **and** `npm run import:verify` must still pass at the end.
+1. **There is no editing UI for `production_items` yet.** Phase 4 only ever creates rows
+   (via grouping) — Phase 5 needs update/delete/add/merge, all through new IPC handlers
+   in a new `src/main/ipc/production.ts` addition (the file already exists for
+   `batchesCreateFromPending`; extend it rather than creating a second production IPC
+   file).
+2. **`productionItems.listUnresolved(batchId)` and `.listPrintable(batchId)` already
+   exist and are tested** (`db:verify`) — the Issues screen and the eventual print view
+   should read from these rather than filtering `listByBatch` client-side.
+3. **Issue types already on the rows**: `missing_sku`, `unknown_mapping`,
+   `invalid_quantity` are all produced by Phase 4's grouping today (`missing_colour` /
+   `missing_size` / `duplicate` are declared in the schema but nothing sets them yet —
+   decide in Phase 5 whether they're still needed given colour/size now come from the
+   mapping, not from parsing).
+4. **A batch currently has no picker/curation UI** — grouping always consumes every
+   pending file into one batch (`production/group-into-batch.ts`). If Phase 5 needs the
+   operator to choose which files go into which batch, that's new UI on top of
+   `createBatchFromPendingFiles`'s existing (currently unused) `importFileIds` param.
+5. **The sample files' expected shape, for regression checks**: with the five shared
+   SKUs mapped, `TEE-BLK-M` = 16 units, `TEE-BLK-L` = 6, `TEE-WHT-M` = 9, `HOOD-NVY-L` =
+   11, `POLO-RED-S` = 8 (61 units, 8 lines total, 3 unresolved). `npm run grouping:verify`
+   is the permanent fixture for this — extend it rather than writing a new script.
+6. **Dashboard counters are global, not batch-scoped** (`app:dashboard-summary` in
+   `src/main/ipc/app.ts`). If Phase 5 introduces a "current batch" concept, decide
+   whether the counters should follow it — right now "Items to Produce" / "Needs Review"
+   sum across every batch that ever existed.
+7. `npm run db:verify`, `npm run import:verify` **and** `npm run grouping:verify` must
+   still pass at the end.
 
 ---
 
@@ -521,3 +582,69 @@ inherits its mistakes. Then decide whether colour/size come from splitting the v
 string or from the mapping table (the schema supports the latter, and three platforms use
 three different separators).
 **Commit:** tag `phase-3-upload-parsing`
+
+## Session 5 — 2026-08-25 — Phase 4
+
+**Built:**
+- `src/main/production/group-into-batch.ts` — `groupOrdersForBatch()` (pure grouping:
+  sums by factory SKU + colour + size, excludes `is_duplicate` rows, flags
+  `missing_sku` / `unknown_mapping` / `invalid_quantity`) and
+  `createBatchFromPendingFiles()` (transaction: creates the batch, inserts
+  `production_items`, reassigns the source files/orders, writes stored totals).
+- `src/main/excel/import-sku-mappings.ts` — bulk SKU-mapping spreadsheet parser (fixed
+  headers, no alias/fuzzy matching needed since it's StitchFlow's own format), reusing
+  `readSpreadsheet()` from Phase 3.
+- `src/main/excel/import-file.ts` — rows matching an existing `duplicate_hash` are now
+  flagged `is_duplicate` at insert, not just counted.
+- Repository additions: `importedOrders.clearDuplicateForFile()` / `.count()`,
+  `productionItems.globalTotals()`.
+- New IPC: `src/main/ipc/sku-mappings.ts` (CRUD + bulk import), `src/main/ipc/production.ts`
+  (`batchesCreateFromPending`), plus additions to `ipc/upload.ts`
+  (`uploadUnmarkDuplicates`) and `ipc/app.ts` (`appDashboardSummary`).
+- Renderer: `pages/sku-mapping/sku-mapping-page.tsx` (new screen — table, add form, bulk
+  import), `hooks/use-dashboard-summary.ts`; `upload-page.tsx` gained the duplicate
+  banner + Import Anyway, the Group-into-batch button and result summary, and a SKU
+  Mappings nav link; `dashboard-page.tsx` now fetches the real summary instead of
+  `EMPTY_DASHBOARD_SUMMARY`; `App.tsx` gained the `sku-mapping` screen.
+- `src/main/grouping-verify.ts` + `npm run grouping:verify` (new permanent verification
+  script, same shape as `db-verify`/`import-verify`) and the new fixed fixture
+  `samples/sku-mappings-bulk.csv`.
+
+**Verified:** `npm run typecheck` clean. `npm run db:verify` 11/11, `npm run
+import:verify` 13/13 (no regressions). `npm run grouping:verify` 11/11, including the
+exact Definition-of-Done assertion (`TEE-BLK-M` = 16 units summed from TikTok 8 + Shopee
+5 + Lazada 3) and the duplicate-default-ignore behaviour (12 re-uploaded rows excluded
+from every total). Drove the real app end-to-end using the project's documented
+screenshot/`executeJavaScript`-click technique (temporarily stubbed
+`upload:pick-files` from an env var and added an env-gated walkthrough hook in
+`index.ts`, both fully reverted afterward — confirmed via `git diff` showing only the
+intended IPC-registration lines changed): Dashboard (all zeros) → Upload → imported the
+three sample files (3 files · 28 order lines) → Group into production batch ("18
+production lines · 61 units · 18 need review" — expected, since no SKU mappings existed
+in that run) → SKU Mappings screen renders empty/add-form/bulk-import → back to
+Dashboard, now showing 28 / 61 / 18 / 1. The walkthrough's own cleanup step removed the
+batch it created (cascades to `production_items`/`import_files`/`imported_orders`);
+confirmed via the app's own entry point (`STITCHFLOW_DB_DUMP` temporary flag, also
+reverted) that every table was back to 0 rows afterward.
+
+**Not done / left:** No editing UI for `production_items` (Phase 5). No batch
+picker — grouping always consumes every pending file (Phase 5/7). Batch numbering is a
+timestamp placeholder (Phase 7). `missing_colour` / `missing_size` / `duplicate` issue
+types are declared in the schema but nothing sets them (colour/size no longer come from
+parsing, so it's unclear Phase 5 still needs the first two — worth revisiting, not
+carried over as-is).
+
+**Known issues:** None new beyond what's listed above under "Known issues /
+environment gotchas" and "What does NOT exist yet".
+
+**Decisions:** Colour/size come from `sku_mappings`, never from parsing
+`raw_variation` — this is what makes the three separators a non-issue (see "Key design
+decision" in the approved Phase 4 plan). Duplicate handling is decided once, at upload
+time (`is_duplicate` flag + banner), not re-decided at grouping time. One button groups
+*everything* pending into *one* new batch — no partial selection yet.
+
+**Next:** Phase 5 — review table, issues screen. Start from "Next actions — Phase 5"
+above: there is currently no way to edit, delete, add, or merge a `production_item`, and
+the Issues screen should read from the already-tested `listUnresolved()` /
+`listPrintable()` repository methods rather than filtering client-side.
+**Commit:** tag `phase-4-mapping-grouping`

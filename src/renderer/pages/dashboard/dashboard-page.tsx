@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { EMPTY_DASHBOARD_SUMMARY } from '@shared/types'
 import { ActionTiles, type DashboardAction } from '@/components/action-tiles'
 import { RecentBatches } from '@/components/recent-batches'
 import { SummaryCards } from '@/components/summary-cards'
+import { useDashboardSummary } from '@/hooks/use-dashboard-summary'
 import type { Screen } from '@/App'
 
 /**
@@ -20,6 +20,7 @@ interface DashboardPageProps {
 
 export function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [notice, setNotice] = useState<string | null>(null)
+  const { summary } = useDashboardSummary()
 
   function handleAction(action: DashboardAction): void {
     if (action === 'upload') {
@@ -46,9 +47,7 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
 
       <div className="space-y-3">
         <h2 className="text-sm font-semibold tracking-tight">Today</h2>
-        {/* Placeholder zeros. Wiring these to real queries belongs to Phase 4/5 — the
-            upload screen is where Phase 3 reports what it read. */}
-        <SummaryCards summary={EMPTY_DASHBOARD_SUMMARY} />
+        <SummaryCards summary={summary} />
       </div>
 
       <RecentBatches />

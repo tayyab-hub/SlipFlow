@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CircleAlert, CircleCheck, CircleHelp, FileSpreadsheet, Trash2 } from 'lucide-react'
-import type { ApplyMappingRequest, ImportFile, UploadResult } from '@shared/types'
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleHelp,
+  FileSpreadsheet,
+  Layers,
+  Tags,
+  Trash2
+} from 'lucide-react'
+import type { ApplyMappingRequest, BatchGroupingResult, ImportFile, UploadResult } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropZone } from '@/components/upload/drop-zone'
 import { PlatformBadge } from '@/components/upload/platform-badge'
+import type { Screen } from '@/App'
 import { ManualMapping } from './manual-mapping'
 
 /** One line in the file list, from either this session's uploads or an earlier one. */
@@ -18,8 +27,9 @@ interface FileEntry {
   status: UploadResult['status']
   detail: string
   importFileId: number | null
-  /** Kept so the mapping screen can be reopened for a file that needs it. */
+  /** Kept so the mapping screen can be reopened, and the duplicate banner acted on. */
   result: UploadResult | null
+  duplicateRows: number
 }
 
 function entryFromResult(result: UploadResult, index: number): FileEntry {
@@ -32,7 +42,8 @@ function entryFromResult(result: UploadResult, index: number): FileEntry {
     status: result.status,
     detail: result.message,
     importFileId: result.importFileId,
-    result
+    result,
+    duplicateRows: result.duplicateRows
   }
 }
 
@@ -52,15 +63,21 @@ function entryFromImportFile(file: ImportFile): FileEntry {
     status: 'imported',
     detail: how,
     importFileId: file.id,
-    result: null
+    result: null,
+    duplicateRows: 0
   }
 }
 
-export function UploadPage() {
+interface UploadPageProps {
+  onNavigate: (screen: Screen) => void
+}
+
+export function UploadPage({ onNavigate }: UploadPageProps) {
   const [entries, setEntries] = useState<FileEntry[]>([])
   const [mappingTarget, setMappingTarget] = useState<UploadResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [groupingResult, setGroupingResult] = useState<BatchGroupingResult | null>(null)
 
   const loadPending = useCallback(async () => {
     const files = await window.stitchflow.listPendingImports()
@@ -131,6 +148,40 @@ export function UploadPage() {
     setEntries((current) => current.filter((item) => item.key !== entry.key))
   }
 
+  async function importAnyway(entry: FileEntry): Promise<void> {
+    if (entry.importFileId === null) return
+
+    setBusy(true)
+    try {
+      await window.stitchflow.unmarkDuplicates(entry.importFileId)
+      setEntries((current) =>
+        current.map((item) => (item.key === entry.key ? { ...item, duplicateRows: 0 } : item))
+      )
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That could not be updated.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function groupIntoBatch(): Promise<void> {
+    setBusy(true)
+    setNotice(null)
+    setGroupingResult(null)
+    try {
+      const result = await window.stitchflow.createBatchFromPending()
+      setGroupingResult(result)
+      setEntries([])
+      await loadPending()
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : 'These files could not be grouped into a batch.'
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (mappingTarget) {
     return (
       <ManualMapping
@@ -149,13 +200,42 @@ export function UploadPage() {
 
   return (
     <div className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold tracking-tight">Upload Orders</h2>
-        <p className="text-sm text-muted-foreground">
-          Add the order files you exported from each marketplace. StitchFlow works out which
-          columns hold the SKU, colour, size and quantity.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold tracking-tight">Upload Orders</h2>
+          <p className="text-sm text-muted-foreground">
+            Add the order files you exported from each marketplace. StitchFlow works out which
+            columns hold the SKU, colour, size and quantity.
+          </p>
+        </div>
+        <Button variant="secondary" onClick={() => onNavigate('sku-mapping')} disabled={busy}>
+          <Tags />
+          SKU Mappings
+        </Button>
       </div>
+
+      {groupingResult && (
+        <Card className="flex items-start gap-3 border-success/30 bg-success-muted p-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-success/15 text-success">
+            <Layers className="size-4.5" />
+          </div>
+          <div className="space-y-0.5 text-sm">
+            <p className="font-medium text-success">
+              Batch {groupingResult.batch.batchNumber} created
+            </p>
+            <p className="text-muted-foreground">
+              {groupingResult.itemsCreated} production line{groupingResult.itemsCreated === 1 ? '' : 's'} ·{' '}
+              {groupingResult.unitsTotal} units
+              {groupingResult.unresolvedCount > 0 &&
+                ` · ${groupingResult.unresolvedCount} need${groupingResult.unresolvedCount === 1 ? 's' : ''} review`}
+              {groupingResult.unmappedSkuCount > 0 &&
+                ` (${groupingResult.unmappedSkuCount} unmapped SKU${groupingResult.unmappedSkuCount === 1 ? '' : 's'})`}
+              {groupingResult.duplicateRowsExcluded > 0 &&
+                ` · ${groupingResult.duplicateRowsExcluded} duplicate row${groupingResult.duplicateRowsExcluded === 1 ? '' : 's'} excluded`}
+            </p>
+          </div>
+        </Card>
+      )}
 
       <DropZone
         busy={busy}
@@ -177,12 +257,20 @@ export function UploadPage() {
       )}
 
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between gap-4">
-          <h3 className="text-sm font-semibold tracking-tight">Files added</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-baseline gap-4">
+            <h3 className="text-sm font-semibold tracking-tight">Files added</h3>
+            {importedCount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {importedCount} file{importedCount === 1 ? '' : 's'} · {totalRows} order lines
+              </p>
+            )}
+          </div>
           {importedCount > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {importedCount} file{importedCount === 1 ? '' : 's'} · {totalRows} order lines
-            </p>
+            <Button size="sm" onClick={() => void groupIntoBatch()} disabled={busy}>
+              <Layers />
+              Group into production batch
+            </Button>
           )}
         </div>
 
@@ -200,49 +288,68 @@ export function UploadPage() {
           <ul className="space-y-2">
             {entries.map((entry) => (
               <li key={entry.key}>
-                <Card className="flex items-center gap-4 px-4 py-3">
-                  <StatusIcon status={entry.status} />
+                <Card className="divide-y divide-border overflow-hidden p-0">
+                  <div className="flex items-center gap-4 px-4 py-3">
+                    <StatusIcon status={entry.status} />
 
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-sm font-medium">{entry.fileName}</span>
-                      <PlatformBadge
-                        platform={entry.platform}
-                        confidence={entry.platformConfidence}
-                      />
-                      {entry.status === 'imported' && (
-                        <Badge tone="success">{entry.rowCount} rows</Badge>
-                      )}
-                      {entry.status === 'needs_mapping' && (
-                        <Badge tone="warning">needs mapping</Badge>
-                      )}
-                      {entry.status === 'failed' && <Badge tone="danger">unreadable</Badge>}
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-medium">{entry.fileName}</span>
+                        <PlatformBadge
+                          platform={entry.platform}
+                          confidence={entry.platformConfidence}
+                        />
+                        {entry.status === 'imported' && (
+                          <Badge tone="success">{entry.rowCount} rows</Badge>
+                        )}
+                        {entry.status === 'needs_mapping' && (
+                          <Badge tone="warning">needs mapping</Badge>
+                        )}
+                        {entry.status === 'failed' && <Badge tone="danger">unreadable</Badge>}
+                      </div>
+                      <p className="truncate text-xs text-muted-foreground" title={entry.detail}>
+                        {entry.detail}
+                      </p>
                     </div>
-                    <p className="truncate text-xs text-muted-foreground" title={entry.detail}>
-                      {entry.detail}
-                    </p>
-                  </div>
 
-                  {entry.status === 'needs_mapping' && entry.result && (
+                    {entry.status === 'needs_mapping' && entry.result && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setMappingTarget(entry.result)}
+                        disabled={busy}
+                      >
+                        Map columns
+                      </Button>
+                    )}
+
                     <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setMappingTarget(entry.result)}
+                      size="icon"
+                      variant="ghost"
+                      title="Remove this file"
+                      onClick={() => void remove(entry)}
                       disabled={busy}
                     >
-                      Map columns
+                      <Trash2 />
                     </Button>
-                  )}
+                  </div>
 
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    title="Remove this file"
-                    onClick={() => void remove(entry)}
-                    disabled={busy}
-                  >
-                    <Trash2 />
-                  </Button>
+                  {entry.duplicateRows > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-warning-muted px-4 py-2 text-xs">
+                      <span className="text-warning">
+                        {entry.duplicateRows} of {entry.rowCount} rows match orders already
+                        imported — ignored by default.
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void importAnyway(entry)}
+                        disabled={busy}
+                      >
+                        Import anyway
+                      </Button>
+                    </div>
+                  )}
                 </Card>
               </li>
             ))}

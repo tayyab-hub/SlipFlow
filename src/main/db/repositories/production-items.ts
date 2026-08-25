@@ -56,6 +56,8 @@ export interface ProductionItemsRepository {
   resolve(id: number): ProductionItem | null
   /** Totals for the batch, for the counters stored on `batches`. */
   totalsForBatch(batchId: number): BatchTotals
+  /** Totals across every batch — the dashboard isn't scoped to one batch. */
+  globalTotals(): BatchTotals
   remove(id: number): boolean
   removeMany(ids: readonly number[]): number
   deleteByBatch(batchId: number): number
@@ -94,6 +96,13 @@ export function createProductionItemsRepository(db: DatabaseSync): ProductionIte
       COALESCE(SUM(CASE WHEN is_resolved = 0 OR issue_type <> '' THEN 1 ELSE 0 END), 0) AS unresolved
     FROM production_items
     WHERE batch_id = ?
+  `)
+  const selectGlobalTotals = db.prepare(`
+    SELECT
+      COUNT(*) AS items,
+      COALESCE(SUM(quantity), 0) AS units,
+      COALESCE(SUM(CASE WHEN is_resolved = 0 OR issue_type <> '' THEN 1 ELSE 0 END), 0) AS unresolved
+    FROM production_items
   `)
   const deleteById = db.prepare('DELETE FROM production_items WHERE id = ?')
   const deleteByBatchId = db.prepare('DELETE FROM production_items WHERE batch_id = ?')
@@ -183,6 +192,16 @@ export function createProductionItemsRepository(db: DatabaseSync): ProductionIte
 
     totalsForBatch(batchId) {
       const row = selectTotals.get(batchId)
+      if (!row) return { items: 0, units: 0, unresolved: 0 }
+      return {
+        items: readInteger(row, 'items'),
+        units: readInteger(row, 'units'),
+        unresolved: readInteger(row, 'unresolved')
+      }
+    },
+
+    globalTotals() {
+      const row = selectGlobalTotals.get()
       if (!row) return { items: 0, units: 0, unresolved: 0 }
       return {
         items: readInteger(row, 'items'),

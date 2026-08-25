@@ -4,6 +4,8 @@ import { applyAppIdentity } from './app-identity'
 import { closeDatabase, initialiseDatabase } from './db'
 import { resolveDatabasePath } from './db/paths'
 import { registerAppHandlers } from './ipc/app'
+import { registerProductionHandlers } from './ipc/production'
+import { registerSkuMappingHandlers } from './ipc/sku-mappings'
 import { registerUploadHandlers } from './ipc/upload'
 
 // Before anything else: pins the app name and the userData directory that the database
@@ -90,6 +92,8 @@ function createMainWindow(): BrowserWindow {
 function registerIpcHandlers(): void {
   registerAppHandlers()
   registerUploadHandlers()
+  registerSkuMappingHandlers()
+  registerProductionHandlers()
 }
 
 /**

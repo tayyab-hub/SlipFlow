@@ -153,8 +153,20 @@ export async function importSpreadsheet(
     }
   })
 
-  // Reported, not acted on: the Ignore / Import Anyway prompt belongs to Phase 4.
-  const duplicateRows = countKnownDuplicates(db, orders)
+  // Rows matching a hash already in the database are flagged now, at insert time. This
+  // is the "Ignore Duplicates" default: grouping (Phase 4) simply excludes flagged rows
+  // from its sums. "Import Anyway" clears the flag later via
+  // importedOrders.clearDuplicateForFile, it never re-runs this detection.
+  const existingHashes = db.importedOrders.findExistingHashes(
+    orders.map((order) => order.duplicateHash ?? '')
+  )
+  const duplicateRows = orders.filter(
+    (order) => order.duplicateHash !== '' && existingHashes.has(order.duplicateHash ?? '')
+  ).length
+  const flaggedOrders = orders.map((order) => ({
+    ...order,
+    isDuplicate: order.duplicateHash !== '' && existingHashes.has(order.duplicateHash ?? '')
+  }))
 
   const { importFileId, mappingRemembered } = db.transaction(() => {
     let savedMappingId = columnMappingId
@@ -193,7 +205,7 @@ export async function importSpreadsheet(
     })
 
     db.importedOrders.createMany(
-      orders.map((order) => ({ ...order, importFileId: importFile.id }))
+      flaggedOrders.map((order) => ({ ...order, importFileId: importFile.id }))
     )
 
     return {
@@ -316,17 +328,6 @@ export function buildDuplicateHash(parts: {
   ].join('|')
 
   return createHash('sha256').update(key).digest('hex')
-}
-
-function countKnownDuplicates(
-  db: StitchFlowDatabase,
-  orders: readonly NewImportedOrder[]
-): number {
-  const hashes = orders.map((order) => order.duplicateHash ?? '').filter((hash) => hash !== '')
-  if (hashes.length === 0) return 0
-
-  const existing = db.importedOrders.findExistingHashes(hashes)
-  return hashes.filter((hash) => existing.has(hash)).length
 }
 
 function defaultMappingName(fileName: string, platform: string): string {

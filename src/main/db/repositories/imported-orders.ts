@@ -43,8 +43,12 @@ export interface ImportedOrdersRepository {
   /** Which of these duplicate hashes are already stored — the Phase 4 duplicate check. */
   findExistingHashes(hashes: readonly string[]): Set<string>
   markDuplicates(ids: readonly number[]): number
+  /** "Import anyway" — clears the flag so a later grouping pass includes this file's rows. */
+  clearDuplicateForFile(importFileId: number): number
   assignToBatch(importFileId: number, batchId: number): number
   deleteByFile(importFileId: number): number
+  /** Total order lines ever imported, for the dashboard's "Orders Imported" counter. */
+  count(): number
 }
 
 export function createImportedOrdersRepository(db: DatabaseSync): ImportedOrdersRepository {
@@ -69,7 +73,11 @@ export function createImportedOrdersRepository(db: DatabaseSync): ImportedOrders
   const assign = db.prepare(
     'UPDATE imported_orders SET batch_id = ? WHERE import_file_id = ?'
   )
+  const clearDuplicate = db.prepare(
+    'UPDATE imported_orders SET is_duplicate = 0 WHERE import_file_id = ?'
+  )
   const deleteByFileId = db.prepare('DELETE FROM imported_orders WHERE import_file_id = ?')
+  const countAll = db.prepare('SELECT COUNT(*) AS total FROM imported_orders')
 
   function bind(input: NewImportedOrder): Record<string, string | number | null> {
     return {
@@ -151,12 +159,21 @@ export function createImportedOrdersRepository(db: DatabaseSync): ImportedOrders
       return Number(result.changes)
     },
 
+    clearDuplicateForFile(importFileId) {
+      return Number(clearDuplicate.run(importFileId).changes)
+    },
+
     assignToBatch(importFileId, batchId) {
       return Number(assign.run(batchId, importFileId).changes)
     },
 
     deleteByFile(importFileId) {
       return Number(deleteByFileId.run(importFileId).changes)
+    },
+
+    count() {
+      const row = countAll.get()
+      return row ? readInteger(row, 'total') : 0
     }
   }
 }

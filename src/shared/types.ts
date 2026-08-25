@@ -409,3 +409,34 @@ export interface ApplyMappingRequest {
   mappingName: string
   platform: string
 }
+
+// ---------------------------------------------------------------------------
+// Grouping + SKU mapping bulk import (Phase 4)
+// ---------------------------------------------------------------------------
+
+/** What the Upload screen shows after "Group into production batch". */
+export interface BatchGroupingResult {
+  batch: Batch
+  /** Production lines created (after grouping — not one per order line). */
+  itemsCreated: number
+  /** Sum of quantities across every created line. */
+  unitsTotal: number
+  /** Lines held back from printing (missing SKU, unmapped, invalid quantity). */
+  unresolvedCount: number
+  /** Of those, how many were specifically an unrecognised incoming SKU. */
+  unmappedSkuCount: number
+  /** Order lines excluded from the batch because they matched an existing hash. */
+  duplicateRowsExcluded: number
+}
+
+/** One row rejected while bulk-importing SKU mappings from a spreadsheet. */
+export interface SkuMappingImportError {
+  rowNumber: number
+  reason: string
+}
+
+export interface BulkImportSkuMappingsResult {
+  fileName: string
+  imported: number
+  errors: SkuMappingImportError[]
+}

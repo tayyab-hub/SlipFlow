@@ -68,17 +68,23 @@ Factory_Software/
     │   ├── app-identity.ts    # app name + userData path — pins the database location
     │   ├── db-verify.ts       # `npm run db:verify` entry
     │   ├── import-verify.ts   # `npm run import:verify` entry
+    │   ├── grouping-verify.ts # `npm run grouping:verify` entry
     │   ├── env.d.ts           # types the `*.sql?raw` imports
     │   ├── ipc/               # one file per IPC domain
     │   │   ├── app.ts
-    │   │   └── upload.ts
+    │   │   ├── upload.ts
+    │   │   ├── sku-mappings.ts
+    │   │   └── production.ts  # batchesCreateFromPending
     │   ├── excel/             # SheetJS reading + column/platform detection
     │   │   ├── column-aliases.ts   # ⚠️ invented alias list — see PROGRESS.md
     │   │   ├── detect-columns.ts
     │   │   ├── detect-platform.ts
     │   │   ├── header-signature.ts # fingerprint that makes a mapping reusable
     │   │   ├── import-file.ts      # read → detect → persist, in one transaction
+    │   │   ├── import-sku-mappings.ts # bulk SKU-mapping spreadsheet parser
     │   │   └── read-workbook.ts
+    │   ├── production/
+    │   │   └── group-into-batch.ts # grouping engine + batch creation (Phase 4)
     │   ├── db/
     │   │   ├── index.ts       # open/close, pragmas, transaction helper, repositories
     │   │   ├── paths.ts       # database + backup locations
@@ -100,11 +106,12 @@ Factory_Software/
     │   │   └── globals.css    # Tailwind import + all theme tokens
     │   ├── pages/             # one folder per screen
     │   │   ├── dashboard/
-    │   │   └── upload/        # upload-page.tsx + manual-mapping.tsx
+    │   │   ├── upload/        # upload-page.tsx + manual-mapping.tsx
+    │   │   └── sku-mapping/   # sku-mapping-page.tsx
     │   ├── components/        # app-level components
     │   │   ├── upload/
     │   │   └── ui/            # shadcn/ui primitives
-    │   ├── hooks/
+    │   ├── hooks/              # use-app-info.ts, use-dashboard-summary.ts
     │   └── lib/               # renderer-only helpers (utils, formatters)
     └── shared/                # types + constants imported by BOTH sides
         ├── types.ts           # domain models, IPC request/response shapes
@@ -149,6 +156,7 @@ npm run typecheck:node   # main + preload + shared
 npm run typecheck:web    # renderer + shared
 npm run db:verify    # inserts + reads back a row in every table, on a throwaway copy
 npm run import:verify    # runs samples/ through the real import pipeline, on a throwaway copy
+npm run grouping:verify  # imports + maps + groups samples/, on a throwaway copy
 ```
 
 Not configured yet: **`npm run lint`** and **`npm test`**. Deferred to Phase 9 — don't
@@ -157,7 +165,8 @@ reference them as if they exist.
 **Definition of done for any code change:** `npm run typecheck` passes and the app still
 launches (actually run it — `npm run dev` — don't infer it from a green typecheck). After
 **any** change to the schema or the repositories, `npm run db:verify` must also pass; after
-any change to parsing, detection or the alias list, so must `npm run import:verify`.
+any change to parsing, detection or the alias list, so must `npm run import:verify`; after
+any change to SKU mapping or grouping, so must `npm run grouping:verify`.
 
 ### Environment gotchas hit already
 
@@ -237,8 +246,8 @@ leaving a task unfinished.
 
 ## 7. Phase tracker
 
-**Current phase: Phase 3 — file upload + column detection ✅ complete**
-**Next phase: Phase 4 — SKU mapping, grouping, duplicate detection**
+**Current phase: Phase 4 — SKU mapping, grouping, duplicate detection ✅ complete**
+**Next phase: Phase 5 — review table, issues screen**
 
 | Phase | Goal | Commit tag | Status |
 |---|---|---|---|
@@ -246,7 +255,7 @@ leaving a task unfinished.
 | 1 | Electron + React + TS + Tailwind + shadcn scaffold. Empty dashboard: 3 buttons (Upload / Review / Print) + 4 summary cards with placeholder zeros. No logic. | `phase-1-skeleton` | ✅ Done |
 | 2 | SQLite layer. Tables: `batches`, `production_items`, `sku_mappings`, `imported_orders`, `import_files`, `column_mappings`, `settings`. DB at `%APPDATA%\StitchFlow\stitchflow.db`. Basic CRUD per table, nothing UI-facing. | `phase-2-database` | ✅ Done |
 | 3 | File upload (drag-drop + picker). Parse `.xlsx`/`.xls`/`.csv` via SheetJS. Auto-detect SKU/colour/size/quantity columns from the spec's alias list. Show row count + platform per file. Manual-mapping fallback screen, mapping saved for reuse. Also generate the sample marketplace test files (spec §30). | `phase-3-upload-parsing` | ✅ Done |
-| 4 | SKU Mapping screen (incoming SKU → factory SKU/colour/size/platform + bulk import). Grouping (sum qty by factory SKU+colour+size). Duplicate detection (order ID + SKU + variation + qty hash) with Ignore / Import Anyway prompt. | `phase-4-mapping-grouping` | ⬜ Not started |
+| 4 | SKU Mapping screen (incoming SKU → factory SKU/colour/size/platform + bulk import). Grouping (sum qty by factory SKU+colour+size). Duplicate detection (order ID + SKU + variation + qty hash) with Ignore / Import Anyway prompt. | `phase-4-mapping-grouping` | ✅ Done |
 | 5 | Review table (edit SKU/colour/size/qty, delete, add, merge, search/filter/sort). Issues screen (missing SKU/colour/size, invalid qty, unknown mapping, duplicate) with Fix flow. Unresolved items excluded from print until confirmed. | `phase-5-review-issues` | ⬜ Not started |
 | 6 | A4 print preview matching the spec layout (standard table + optional grouped-by-SKU). Print CSS, page-count estimate, native Print, Save PDF. | `phase-6-print` | ⬜ Not started |
 | 7 | Save runs as batches. History screen (view/reprint/duplicate/delete). Settings (factory name, paper size, layout, checkboxes, sorting, date format). Backup Now / Restore / daily auto-backup keeping last 14. Export/Import all data as ZIP. | `phase-7-history-settings-backup` | ⬜ Not started |

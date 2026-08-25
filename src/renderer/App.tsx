@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { AppHeader } from '@/components/app-header'
 import { StatusBar } from '@/components/status-bar'
 import { DashboardPage } from '@/pages/dashboard/dashboard-page'
+import { SkuMappingPage } from '@/pages/sku-mapping/sku-mapping-page'
 import { UploadPage } from '@/pages/upload/upload-page'
 
-export type Screen = 'dashboard' | 'upload'
+export type Screen = 'dashboard' | 'upload' | 'sku-mapping'
 
 const SCREEN_TITLES: Record<Screen, string> = {
   dashboard: '',
-  upload: 'Upload Orders'
+  upload: 'Upload Orders',
+  'sku-mapping': 'SKU Mappings'
 }
 
 /**
@@ -30,11 +32,9 @@ export default function App() {
 
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-6xl px-8 py-7">
-          {screen === 'dashboard' ? (
-            <DashboardPage onNavigate={setScreen} />
-          ) : (
-            <UploadPage />
-          )}
+          {screen === 'dashboard' && <DashboardPage onNavigate={setScreen} />}
+          {screen === 'upload' && <UploadPage onNavigate={setScreen} />}
+          {screen === 'sku-mapping' && <SkuMappingPage onNavigate={setScreen} />}
         </div>
       </main>
 
