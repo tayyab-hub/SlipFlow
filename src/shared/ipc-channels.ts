@@ -22,12 +22,16 @@ export const IpcChannels = {
   batchesCreateFromPending: 'batches:create-from-pending',
   batchesList: 'batches:list',
   batchesGetById: 'batches:get-by-id',
+  batchesMarkPrinted: 'batches:mark-printed',
 
   productionItemsListByBatch: 'production-items:list-by-batch',
+  productionItemsListPrintable: 'production-items:list-printable',
   productionItemsUpdate: 'production-items:update',
   productionItemsCreate: 'production-items:create',
   productionItemsRemove: 'production-items:remove',
-  productionItemsMerge: 'production-items:merge'
+  productionItemsMerge: 'production-items:merge',
+
+  printSaveAsPdf: 'print:save-as-pdf'
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]

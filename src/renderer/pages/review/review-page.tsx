@@ -5,6 +5,7 @@ import {
   Merge,
   Pencil,
   Plus,
+  Printer,
   Trash2,
   TriangleAlert,
   X
@@ -18,10 +19,12 @@ import type {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import type { Navigate } from '@/App'
 
 interface ReviewPageProps {
   /** No id — falls back to the most recently created batch. */
   batchId?: number
+  onNavigate: Navigate
 }
 
 type StatusFilter = 'all' | 'needs-review' | 'resolved'
@@ -63,7 +66,7 @@ function draftFromItem(item: ProductionItem): EditDraft {
   }
 }
 
-export function ReviewPage({ batchId }: ReviewPageProps) {
+export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
   const [batch, setBatch] = useState<Batch | null>(null)
   const [items, setItems] = useState<ProductionItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -261,12 +264,23 @@ export function ReviewPage({ batchId }: ReviewPageProps) {
               ` · ${unresolvedCount} need${unresolvedCount === 1 ? 's' : ''} review`}
           </p>
         </div>
-        {selected.size >= 2 && (
-          <Button size="sm" onClick={() => void mergeSelected()} disabled={busy}>
-            <Merge />
-            Merge selected ({selected.size})
+        <div className="flex shrink-0 gap-2">
+          {selected.size >= 2 && (
+            <Button size="sm" onClick={() => void mergeSelected()} disabled={busy}>
+              <Merge />
+              Merge selected ({selected.size})
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => onNavigate('print', batch.id)}
+            disabled={busy}
+          >
+            <Printer />
+            Print this batch
           </Button>
-        )}
+        </div>
       </div>
 
       {notice && (

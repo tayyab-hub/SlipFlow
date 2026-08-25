@@ -210,3 +210,46 @@
     background: transparent;
   }
 }
+
+/*
+ * Print (Phase 6) — the Print Preview screen wraps the sheet in `.print-sheet` and
+ * marks its own toolbar `.no-print`. Everything else on the page (app header, status
+ * bar, the toolbar) is hidden at print time via the classic "print only this element"
+ * technique, so no other component needs to know printing exists.
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible;
+  }
+
+  .print-sheet {
+    position: fixed;
+    inset: 0;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+}

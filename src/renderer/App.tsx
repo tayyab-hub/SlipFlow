@@ -2,20 +2,22 @@ import { useState } from 'react'
 import { AppHeader } from '@/components/app-header'
 import { StatusBar } from '@/components/status-bar'
 import { DashboardPage } from '@/pages/dashboard/dashboard-page'
+import { PrintPage } from '@/pages/print/print-page'
 import { ReviewPage } from '@/pages/review/review-page'
 import { SkuMappingPage } from '@/pages/sku-mapping/sku-mapping-page'
 import { UploadPage } from '@/pages/upload/upload-page'
 
-export type Screen = 'dashboard' | 'upload' | 'sku-mapping' | 'review'
+export type Screen = 'dashboard' | 'upload' | 'sku-mapping' | 'review' | 'print'
 
-/** Second argument is only meaningful for `'review'` — which batch to open. */
+/** Second argument is only meaningful for `'review'`/`'print'` — which batch to open. */
 export type Navigate = (screen: Screen, batchId?: number) => void
 
 const SCREEN_TITLES: Record<Screen, string> = {
   dashboard: '',
   upload: 'Upload Orders',
   'sku-mapping': 'SKU Mappings',
-  review: 'Review Production'
+  review: 'Review Production',
+  print: 'Print Sheet'
 }
 
 /**
@@ -28,9 +30,11 @@ const SCREEN_TITLES: Record<Screen, string> = {
 export default function App() {
   const [screen, setScreen] = useState<Screen>('dashboard')
   const [reviewBatchId, setReviewBatchId] = useState<number | undefined>(undefined)
+  const [printBatchId, setPrintBatchId] = useState<number | undefined>(undefined)
 
   const navigate: Navigate = (nextScreen, batchId) => {
     if (nextScreen === 'review') setReviewBatchId(batchId)
+    if (nextScreen === 'print') setPrintBatchId(batchId)
     setScreen(nextScreen)
   }
 
@@ -46,7 +50,8 @@ export default function App() {
           {screen === 'dashboard' && <DashboardPage onNavigate={navigate} />}
           {screen === 'upload' && <UploadPage onNavigate={navigate} />}
           {screen === 'sku-mapping' && <SkuMappingPage onNavigate={navigate} />}
-          {screen === 'review' && <ReviewPage batchId={reviewBatchId} />}
+          {screen === 'review' && <ReviewPage batchId={reviewBatchId} onNavigate={navigate} />}
+          {screen === 'print' && <PrintPage batchId={printBatchId} onNavigate={navigate} />}
         </div>
       </main>
 

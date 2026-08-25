@@ -9,12 +9,50 @@ every session.
 
 ## Current state
 
-**Phase:** 5 — production review + issue handling
+**Phase:** 6 — A4 print preview + printing
 **Status:** ✅ Complete, verified against its Definition of Done
-**Next phase:** 6 — A4 print preview
+**Next phase:** 7 — batches history, settings, backup
 **Last updated:** 2026-08-25
 
 ### What works right now (observed, not assumed)
+
+**A4 print preview + printing (Phase 6)**
+
+- A **Print Sheet** screen exists: opened from the Dashboard tile (most recently created
+  batch), from the Review screen's new **Print this batch** button, or automatically
+  reflects whichever batch was just reviewed. Reads `productionItems.listPrintable()` —
+  resolved, issue-free rows only — so unresolved items are excluded from the sheet by
+  construction, not by a UI filter. When a batch still has unresolved items, a banner
+  says how many and links back to Review.
+- **The A4 layout was designed from scratch** — the spec's ASCII mockup is not in this
+  repo (CLAUDE.md §8) and the user explicitly chose "design it from scratch" over
+  supplying one this session. Header block: title, factory-name placeholder (same
+  "Factory name not set" string `AppHeader` already shows), batch number/name, created
+  and printed dates, line/unit totals. **Standard** layout is a flat # / SKU / Colour /
+  Size / Qty table; **Grouped by SKU** clusters rows under a bold SKU heading with a
+  unit subtotal. Toggled with a plain `<select>`.
+- **Print CSS is new** (`globals.css` had no `@media print` block before this phase):
+  `@page { size: A4; margin: 14mm }`, plus the standard "hide everything except this
+  element" trick (`.print-sheet` / `.no-print`) — confirmed by generating a real PDF
+  and reading it back: the output shows only the production sheet, zero app chrome
+  (no header, no toolbar, no status bar), fits on one page.
+- **Print** calls `window.print()` (a plain DOM API — no IPC needed) then marks the
+  batch printed. **Save PDF** (`src/main/ipc/print.ts`, new) shows a save dialog, calls
+  `contents.printToPDF({ preferCSSPageSize: true })` — which is what makes the PDF
+  respect the same `@page`/`@media print` rules as the on-screen/native-print path
+  instead of defaulting to Letter size — writes the file, then marks the batch printed.
+  `batches.markPrinted()` already existed and was already tested (`db:verify`); Phase 6
+  just exposes it over IPC (`batchesMarkPrinted`) and calls it from both paths.
+- An on-screen "~N pages (estimate)" indicator uses a simple rows-per-page heuristic —
+  explicitly labelled as an estimate, not a real pagination engine.
+- Confirmed by generating and reading back a real PDF (grouping the sample files with
+  the five shared SKUs mapped): header block showed "Batch B2026...", "5 lines · 50
+  units"; grouped layout showed HOOD-NVY-L/POLO-RED-S/TEE-BLK-L/TEE-BLK-M/TEE-WHT-M with
+  correct per-SKU subtotals (11/8/6/16/9, matching `grouping:verify`'s known math); the
+  unresolved-items banner correctly reported the 3 platform-only SKUs left unmapped.
+- `npm run db:verify` (11/11), `npm run import:verify` (13/13), `npm run
+  grouping:verify` (11/11) and `npm run review:verify` (10/10) all still pass — Phase 6
+  added no schema change and changed no existing repository behaviour.
 
 **Production review + issue handling (Phase 5)**
 
@@ -142,8 +180,7 @@ every session.
 
 ### What does NOT exist yet
 
-No print view, no history/batches screen, no settings UI, no installer, no lint, no
-unit tests.
+No history/batches screen, no settings UI, no installer, no lint, no unit tests.
 
 Specific things that will surprise you if you don't know:
 
@@ -179,6 +216,14 @@ Specific things that will surprise you if you don't know:
   **Still worth a manual drag before Phase 5.**
 - **Dashboard's "Items to Produce" / "Needs Review" are global counters**, not scoped to
   the most recent batch — there is no concept of "current batch" in the UI yet.
+- **The A4 layout is invented, not from the spec** — see the new "Assumptions" entry
+  below. Check it against the real spec before treating it as final.
+- **The page-count estimate is a rows-per-page heuristic**, not real pagination. It
+  will drift from the browser's actual print engine, especially for very long or very
+  short SKU names. Labelled "(estimate)" in the UI on purpose.
+- **`batch.status` never reaches `'ready'`** — that value exists in the schema
+  (`BatchStatus`) but nothing sets it. Only `'draft'` → `'printed'` (via
+  `markPrinted()`) is exercised today.
 
 ### Assumptions Claude made (not from a spec — change freely)
 
@@ -201,6 +246,13 @@ The original spec document is **not in this repo**, so these were invented:
    lands.
 6. **Dark-mode tokens exist but nothing activates them** (no `.dark` class is ever set).
    Kept so a Phase 7 theme setting doesn't require redefining all 25 colours.
+7. **The A4 print layout (Phase 6) is entirely invented.** The user was asked directly
+   whether they had the spec's ASCII mockup and explicitly chose "design it from
+   scratch" over supplying one. Header block fields (factory name placeholder, batch
+   number/name, created/printed dates, line/unit totals), the standard table's column
+   order (# / SKU / Colour / Size / Qty), and the grouped-by-SKU heading+subtotal
+   format are all judgement calls in `src/renderer/pages/print/print-page.tsx` — cheap
+   to change now, before any operator has seen a printed sheet.
 
 ### ⚠️ The column-alias list is invented — REVIEW IT FIRST
 
@@ -348,9 +400,23 @@ data. That option disappears once real batches exist.
   create, remove, merge. This is the same "stored totals must be kept in step" rule from
   Phase 4, now enforced at every one of Phase 5's five new IPC handlers, not just batch
   creation.
+- **The print sheet is isolated at print time via the classic "hide everything except
+  this element" CSS trick** (`body * { visibility: hidden }` /
+  `.print-sheet, .print-sheet * { visibility: visible }`), not by conditionally
+  rendering `AppHeader`/`StatusBar`. Neither component knows printing exists. Any new
+  page-level chrome added later doesn't need to think about print — it's hidden for
+  free by the existing `body *` rule.
+- **`printToPDF` is always called with `preferCSSPageSize: true`**, deliberately, so
+  the PDF and the native `window.print()` output are pixel-identical — both read the
+  same `@page`/`@media print` rules in `globals.css`. Don't pass an explicit
+  `pageSize`/`margins` option instead; that would let the two paths drift apart.
+- **Printing marks a batch `printed` optimistically on click**, not on confirmed
+  completion. `window.print()` has no callback for "the operator actually printed
+  vs. cancelled the OS dialog" — clicking Print is treated as the trackable action.
+  Save PDF marks it only after a confirmed successful write.
 - Git tags **`phase-1-skeleton`**, **`phase-2-database`**, **`phase-3-upload-parsing`**,
-  **`phase-4-mapping-grouping`** and **`phase-5-review-issues`** mark those commits.
-  `git checkout <tag>` returns to a known-good state.
+  **`phase-4-mapping-grouping`**, **`phase-5-review-issues`** and **`phase-6-print`**
+  mark those commits. `git checkout <tag>` returns to a known-good state.
 
 ### Known issues / environment gotchas
 
@@ -395,6 +461,16 @@ data. That option disappears once real batches exist.
     column, the saved mapping no longer resolves and the file is sent back to the mapping
     screen with an explanation. It does not offer to update the existing mapping — the
     operator would re-save and overwrite it.
+14. **`webContents.printToPDF()` can fail with "Failed to generate PDF: Printing
+    failed" if something else is concurrently calling `executeJavaScript` on the same
+    `webContents` while it runs** — hit repeatedly while automating Phase 6's manual
+    verification (a polling `__click` helper kept calling `executeJavaScript` every
+    200ms and collided with the in-flight print job). Isolated with a series of
+    standalone repros: identical `printToPDF` calls succeeded consistently outside that
+    polling loop, including on the real batch data reached via real navigation — so
+    this is a test-harness hazard, not an application bug. If a future phase automates
+    around printing again, stop all polling/`executeJavaScript` activity on that
+    `webContents` before triggering `printToPDF`.
 
 ### Useful technique for verifying UI phases
 
@@ -415,26 +491,30 @@ button. The whole UI path runs for real; only the OS dialog is stubbed. Both the
 the hook were removed before committing, and the run cleaned up the rows it created via
 `importFiles.remove()` so the live database was left as found — verified afterwards.
 
-### Next actions — Phase 6 (A4 print preview)
+### Next actions — Phase 7 (batches history, settings, backup)
 
-1. **`productionItems.listPrintable(batchId)` is exactly what the print view should
-   read from** — resolved and issue-free, already ordered by `sort_order, factory_sku,
-   colour, size, id`. It's existed and been tested since Phase 2; Phase 5 just finally
-   gave the operator a way to make everything in a batch reach that state.
-2. **There is still no batch-picker/history screen.** Same constraint Phase 5 worked
-   within — Print will need the same "most recent batch, or the one just handled"
-   navigation pattern (`App.tsx`'s `Navigate` type already threads a `batchId` through;
-   reuse it rather than inventing a second mechanism) until Phase 7 adds real history.
-3. **`batches.markPrinted(id)`** already exists (sets `status: 'printed'`,
-   `printed_at`) and is tested — call it once printing actually happens, not before.
-4. **The spec's ASCII print layout mockup is not in this repo** (CLAUDE.md §8) — ask for
-   it before guessing the A4 layout, same caution as Phase 3's column-alias list.
-5. **Unresolved items must stay excluded from print** — `listPrintable()` already
-   enforces this at the query level, so the print view should never need its own
-   resolved/issue filtering logic; if a batch still has unresolved rows, decide whether
-   Phase 6 blocks printing outright or prints only the resolved subset with a warning.
-6. `npm run db:verify`, `npm run import:verify`, `npm run grouping:verify` **and**
-   `npm run review:verify` must still pass at the end.
+1. **`RecentBatches` (`src/renderer/components/recent-batches.tsx`) is still the Phase 1
+   inert empty-state placeholder.** This is the obvious place for the real history list
+   — `batches.list()` already supports it, and `Navigate` already threads a `batchId`
+   into Review/Print, so a history row just needs to call
+   `onNavigate('review', id)` / `onNavigate('print', id)`.
+2. **No screen lets the operator pick an older batch.** Review and Print both only ever
+   show "the batch just handled" or "the most recently created one" — that was a
+   deliberate scope limit in both phases, explicitly deferred here.
+3. **Settings doesn't exist yet, so "Factory name not set" is hardcoded in two places**
+   (`AppHeader` and the print sheet's header block) — when Settings lands, both need to
+   read the same value, not just one of them.
+4. **`createBatchFromPendingFiles`'s `importFileIds` param has existed since Phase 4
+   and is still never passed** — if Phase 7 wants the operator to choose which pending
+   files go into which batch, that's the seam, not new grouping logic.
+5. **Backup Now / Restore needs `sqlite.backup()`, not a file copy** — already flagged
+   in CLAUDE.md §9 (WAL-safety reason) and in the "Decisions" list above.
+6. **`batch.status` has never reached `'ready'`** — only `'draft'`→`'printed'` is
+   exercised. Decide whether Phase 7's history list needs that state or the schema
+   value stays permanently unused.
+7. `npm run db:verify`, `npm run import:verify`, `npm run grouping:verify` **and**
+   `npm run review:verify` must still pass at the end (no `print:verify` exists —
+   Phase 6 is UI/print-pipeline, not business logic a Node script can assert against).
 
 ---
 
@@ -753,3 +833,75 @@ dropped. Every mutation to a batch's items recomputes and re-stores the batch to
 `listPrintable()` is the query to build the print view from, and the spec's ASCII
 layout mockup isn't in this repo — ask for it rather than guessing the layout.
 **Commit:** tag `phase-5-review-issues`
+
+## Session 7 — 2026-08-25 — Phase 6
+
+**Built:**
+- Asked the user directly whether the spec's ASCII print-layout mockup was available
+  before starting (per CLAUDE.md §8's standing instruction) — they explicitly chose to
+  have the layout designed from scratch rather than supply one.
+- `src/renderer/pages/print/print-page.tsx` (new) — the Print Sheet screen: header
+  block (title, factory-name placeholder, batch number/name, created/printed dates,
+  line/unit totals), a Standard-table / Grouped-by-SKU toggle, a rows-per-page
+  page-count estimate, an unresolved-items warning banner (linking to Review), and
+  Print / Save PDF buttons. Reads `listPrintable()`, not `listByBatch()`, so unresolved
+  items are excluded by construction.
+- `src/main/ipc/print.ts` (new) — one handler, `printSaveAsPdf`: save dialog →
+  `contents.printToPDF({ preferCSSPageSize: true })` → write file. `preferCSSPageSize`
+  is what makes the PDF and `window.print()` share one `@page`/`@media print` source of
+  truth instead of drifting apart.
+- `src/main/ipc/production.ts` extended with `batchesMarkPrinted` (thin wrapper over
+  the already-tested `batches.markPrinted()`) and `productionItemsListPrintable`.
+- `src/renderer/styles/globals.css` gained its first `@media print` block: `@page {
+  size: A4; margin: 14mm }`, the "hide everything except `.print-sheet`" visibility
+  trick, `.no-print`, and table row/header-repeat rules for multi-page sheets.
+- `App.tsx`'s `Screen`/`Navigate` gained `'print'`; the Dashboard's Print Sheet tile and
+  Review's new "Print this batch" button both navigate to it (Review also gained the
+  `onNavigate` prop it was missing since Phase 5).
+- Dashboard's `handleAction` simplified — all three tiles now navigate directly, so the
+  Phase 1-era `notice`/`PENDING_ACTIONS` state in `dashboard-page.tsx` was dead code and
+  removed.
+
+**Verified:** `npm run typecheck` clean. `db:verify` 11/11 (includes the pre-existing
+`markPrinted` check Phase 6 depends on), `import:verify` 13/13, `grouping:verify`
+11/11, `review:verify` 10/10 — all unchanged, no regressions. No new verify script:
+this phase is UI/print-pipeline, not business logic a Node script can meaningfully
+assert against. Drove the real app end-to-end via the same temporary,
+fully-reverted screenshot technique as Phases 4/5, extended with a new one this phase
+enables — **reading the generated PDF back with the Read tool's native PDF support**:
+grouped the three sample files with the five shared SKUs pre-mapped, opened Print from
+Review, screenshotted both layouts (Standard: clean # / SKU / Colour / Size / Qty
+table; Grouped: HOOD-NVY-L/POLO-RED-S/TEE-BLK-L/TEE-BLK-M/TEE-WHT-M with correct
+per-SKU subtotals — 11/8/6/16/9, matching `grouping:verify`'s known math — the
+unresolved banner correctly named the 3 unmapped platform-only SKUs), then triggered
+Save PDF for real and read the output file directly: a genuinely clean single A4 page
+with **zero app chrome** — no header, no toolbar, no status bar — confirming the print
+CSS actually works, not just that the on-screen preview looks right. Confirmed via the
+app's own entry point that the live database was back to empty afterward.
+
+**Not done / left:** No batch-picker/history screen (Phase 7, same constraint Phase 5
+already worked within). Page-count is a heuristic estimate, not real pagination.
+`batch.status` still never reaches `'ready'` — only `'draft'`→`'printed'` is exercised.
+
+**Known issues:** `webContents.printToPDF()` can fail ("Failed to generate PDF:
+Printing failed") if something else concurrently calls `executeJavaScript` on the same
+`webContents` while the print job is in flight — hit repeatedly while automating this
+phase's own manual verification (the `__click` polling helper collided with it). Not an
+application bug: isolated with several standalone repros showing identical
+`printToPDF` calls succeed reliably outside that specific collision, including on real
+batch data reached through real navigation. Documented above under "Known issues /
+environment gotchas" for whichever future phase next automates around printing.
+
+**Decisions:** The print sheet is isolated at print time via the CSS "hide everything
+except this element" trick (`.print-sheet` visibility toggling), not by conditionally
+rendering `AppHeader`/`StatusBar` — neither component knows printing exists, and
+nothing about future page chrome needs to either. `printToPDF` always passes
+`preferCSSPageSize: true` so the PDF and native print never diverge. Printing marks a
+batch `printed` optimistically on click (no completion callback exists for
+`window.print()`); Save PDF marks it only after a confirmed write.
+
+**Next:** Phase 7 — batches history, settings, backup. Start from "Next actions —
+Phase 7" above: `RecentBatches` is still Phase 1's inert placeholder and is the obvious
+place for the real history list, since `batches.list()` and the `Navigate` batch-id
+plumbing both already exist to support it.
+**Commit:** tag `phase-6-print`

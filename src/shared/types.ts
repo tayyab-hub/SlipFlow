@@ -440,3 +440,13 @@ export interface BulkImportSkuMappingsResult {
   imported: number
   errors: SkuMappingImportError[]
 }
+
+// ---------------------------------------------------------------------------
+// Printing (Phase 6)
+// ---------------------------------------------------------------------------
+
+/** `saved: false` means the operator cancelled the save dialog — nothing was written. */
+export interface SavePdfResult {
+  saved: boolean
+  filePath: string | null
+}

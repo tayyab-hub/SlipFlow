@@ -97,10 +97,21 @@ export function registerProductionHandlers(): void {
     return getDatabase().batches.getById(assertInteger(id, 'id'))
   })
 
+  ipcMain.handle(IpcChannels.batchesMarkPrinted, (_event, id: unknown): Batch | null => {
+    return getDatabase().batches.markPrinted(assertInteger(id, 'id'))
+  })
+
   ipcMain.handle(
     IpcChannels.productionItemsListByBatch,
     (_event, batchId: unknown): ProductionItem[] => {
       return getDatabase().productionItems.listByBatch(assertInteger(batchId, 'batchId'))
+    }
+  )
+
+  ipcMain.handle(
+    IpcChannels.productionItemsListPrintable,
+    (_event, batchId: unknown): ProductionItem[] => {
+      return getDatabase().productionItems.listPrintable(assertInteger(batchId, 'batchId'))
     }
   )
 

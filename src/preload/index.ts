@@ -12,6 +12,7 @@ import type {
   NewSkuMapping,
   ProductionItem,
   ProductionItemUpdate,
+  SavePdfResult,
   SkuMapping,
   SkuMappingUpdate,
   UploadResult
@@ -72,8 +73,15 @@ const api = {
   getBatch: (id: number): Promise<Batch | null> =>
     ipcRenderer.invoke(IpcChannels.batchesGetById, id),
 
+  markBatchPrinted: (id: number): Promise<Batch | null> =>
+    ipcRenderer.invoke(IpcChannels.batchesMarkPrinted, id),
+
   listProductionItems: (batchId: number): Promise<ProductionItem[]> =>
     ipcRenderer.invoke(IpcChannels.productionItemsListByBatch, batchId),
+
+  /** Resolved, issue-free rows only — what the print sheet shows. */
+  listPrintableItems: (batchId: number): Promise<ProductionItem[]> =>
+    ipcRenderer.invoke(IpcChannels.productionItemsListPrintable, batchId),
 
   updateProductionItem: (id: number, changes: ProductionItemUpdate): Promise<ProductionItem | null> =>
     ipcRenderer.invoke(IpcChannels.productionItemsUpdate, { id, changes }),
@@ -86,6 +94,10 @@ const api = {
 
   mergeProductionItems: (batchId: number, ids: number[]): Promise<ProductionItem> =>
     ipcRenderer.invoke(IpcChannels.productionItemsMerge, { batchId, ids }),
+
+  /** Opens a save dialog and writes the current page as a PDF. `saved: false` if cancelled. */
+  savePrintPdf: (suggestedFileName: string): Promise<SavePdfResult> =>
+    ipcRenderer.invoke(IpcChannels.printSaveAsPdf, suggestedFileName),
 
   /**
    * Resolves a dropped `File` to its path on disk.

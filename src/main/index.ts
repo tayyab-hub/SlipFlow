@@ -4,6 +4,7 @@ import { applyAppIdentity } from './app-identity'
 import { closeDatabase, initialiseDatabase } from './db'
 import { resolveDatabasePath } from './db/paths'
 import { registerAppHandlers } from './ipc/app'
+import { registerPrintHandlers } from './ipc/print'
 import { registerProductionHandlers } from './ipc/production'
 import { registerSkuMappingHandlers } from './ipc/sku-mappings'
 import { registerUploadHandlers } from './ipc/upload'
@@ -94,6 +95,7 @@ function registerIpcHandlers(): void {
   registerUploadHandlers()
   registerSkuMappingHandlers()
   registerProductionHandlers()
+  registerPrintHandlers()
 }
 
 /**

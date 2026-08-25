@@ -75,7 +75,8 @@ Factory_Software/
     │   │   ├── app.ts
     │   │   ├── upload.ts
     │   │   ├── sku-mappings.ts
-    │   │   └── production.ts  # batches + production items (create/list/update/merge)
+    │   │   ├── production.ts  # batches + production items (create/list/update/merge)
+    │   │   └── print.ts       # printSaveAsPdf
     │   ├── excel/             # SheetJS reading + column/platform detection
     │   │   ├── column-aliases.ts   # ⚠️ invented alias list — see PROGRESS.md
     │   │   ├── detect-columns.ts
@@ -105,12 +106,13 @@ Factory_Software/
     │   ├── App.tsx            # shell + screen switch (no router — see §5.11)
     │   ├── env.d.ts
     │   ├── styles/
-    │   │   └── globals.css    # Tailwind import + all theme tokens
+    │   │   └── globals.css    # Tailwind import, theme tokens, @media print rules
     │   ├── pages/             # one folder per screen
     │   │   ├── dashboard/
     │   │   ├── upload/        # upload-page.tsx + manual-mapping.tsx
     │   │   ├── sku-mapping/   # sku-mapping-page.tsx
-    │   │   └── review/        # review-page.tsx
+    │   │   ├── review/        # review-page.tsx
+    │   │   └── print/         # print-page.tsx
     │   ├── components/        # app-level components
     │   │   ├── upload/
     │   │   └── ui/            # shadcn/ui primitives
@@ -251,8 +253,8 @@ leaving a task unfinished.
 
 ## 7. Phase tracker
 
-**Current phase: Phase 5 — review table, issues screen ✅ complete**
-**Next phase: Phase 6 — A4 print preview**
+**Current phase: Phase 6 — A4 print preview ✅ complete**
+**Next phase: Phase 7 — batches history, settings, backup**
 
 | Phase | Goal | Commit tag | Status |
 |---|---|---|---|
@@ -262,7 +264,7 @@ leaving a task unfinished.
 | 3 | File upload (drag-drop + picker). Parse `.xlsx`/`.xls`/`.csv` via SheetJS. Auto-detect SKU/colour/size/quantity columns from the spec's alias list. Show row count + platform per file. Manual-mapping fallback screen, mapping saved for reuse. Also generate the sample marketplace test files (spec §30). | `phase-3-upload-parsing` | ✅ Done |
 | 4 | SKU Mapping screen (incoming SKU → factory SKU/colour/size/platform + bulk import). Grouping (sum qty by factory SKU+colour+size). Duplicate detection (order ID + SKU + variation + qty hash) with Ignore / Import Anyway prompt. | `phase-4-mapping-grouping` | ✅ Done |
 | 5 | Review table (edit SKU/colour/size/qty, delete, add, merge, search/filter/sort). Issues screen (missing SKU/colour/size, invalid qty, unknown mapping, duplicate) with Fix flow. Unresolved items excluded from print until confirmed. | `phase-5-review-issues` | ✅ Done |
-| 6 | A4 print preview matching the spec layout (standard table + optional grouped-by-SKU). Print CSS, page-count estimate, native Print, Save PDF. | `phase-6-print` | ⬜ Not started |
+| 6 | A4 print preview matching the spec layout (standard table + optional grouped-by-SKU). Print CSS, page-count estimate, native Print, Save PDF. | `phase-6-print` | ✅ Done |
 | 7 | Save runs as batches. History screen (view/reprint/duplicate/delete). Settings (factory name, paper size, layout, checkboxes, sorting, date format). Backup Now / Restore / daily auto-backup keeping last 14. Export/Import all data as ZIP. | `phase-7-history-settings-backup` | ⬜ Not started |
 | 8 | electron-builder → `StitchFlow Setup.exe` (NSIS). Desktop + Start Menu shortcuts, DB preserved across updates, splash screen, optional launch-on-startup. | `phase-8-installer` | ⬜ Not started |
 | 9 | Hardening: corrupted/empty files, blank rows, multi-sheet workbooks, performance on a few thousand rows with progress indicator, friendly errors everywhere. Finalise README. Run the spec's 31-step Final Test end to end with no raw error surfacing. | `phase-9-hardening` | ⬜ Not started |
