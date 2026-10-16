@@ -82,7 +82,7 @@ export function registerProductionHandlers(): void {
       itemsCreated: result.totals.items,
       unitsTotal: result.totals.units,
       unresolvedCount: result.totals.unresolved,
-      unmappedSkuCount: result.unmappedSkuCount,
+      autoSplitCount: result.autoSplitCount,
       duplicateRowsExcluded: result.duplicateRowsExcluded
     }
   })

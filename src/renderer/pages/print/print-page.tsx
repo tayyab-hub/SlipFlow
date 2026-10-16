@@ -3,6 +3,7 @@ import { FileDown, Inbox, Printer, TriangleAlert } from 'lucide-react'
 import type { Batch, ProductionItem } from '@shared/types'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { compareSizes } from '@/lib/sort-size'
 import type { Navigate } from '@/App'
 
 interface PrintPageProps {
@@ -40,9 +41,30 @@ interface SkuGroup {
   rows: ProductionItem[]
 }
 
+/** Size smallest-first is the whole sort — every S goes together, then every M, and
+ *  so on, regardless of which product it belongs to. SKU/colour only break ties within
+ *  the same size. Used for the Standard table. */
+function sortBySize(items: readonly ProductionItem[]): ProductionItem[] {
+  return [...items].sort(
+    (a, b) =>
+      compareSizes(a.size, b.size) ||
+      a.factorySku.localeCompare(b.factorySku) ||
+      a.colour.localeCompare(b.colour)
+  )
+}
+
+/** SKU first (so each product's rows land in one group), then size smallest-first
+ *  within it. Used to feed the Grouped-by-SKU layout. */
 function groupBySku(items: readonly ProductionItem[]): SkuGroup[] {
+  const bySku = [...items].sort(
+    (a, b) =>
+      a.factorySku.localeCompare(b.factorySku) ||
+      compareSizes(a.size, b.size) ||
+      a.colour.localeCompare(b.colour)
+  )
+
   const groups = new Map<string, SkuGroup>()
-  for (const item of items) {
+  for (const item of bySku) {
     const key = item.factorySku || '(no SKU)'
     const existing = groups.get(key)
     if (existing) {
@@ -111,6 +133,7 @@ export function PrintPage({ batchId, onNavigate }: PrintPageProps) {
     }
   }
 
+  const sortedItems = useMemo(() => sortBySize(items), [items])
   const groups = useMemo(() => groupBySku(items), [items])
   const pages = estimatePages(items.length, layout)
   const totalUnits = items.reduce((sum, item) => sum + item.quantity, 0)
@@ -231,7 +254,7 @@ export function PrintPage({ batchId, onNavigate }: PrintPageProps) {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, index) => (
+                {sortedItems.map((item, index) => (
                   <tr key={item.id} className="border-b border-border/60">
                     <td className="py-1.5 pr-3 text-muted-foreground">{index + 1}</td>
                     <td className="py-1.5 pr-3 font-medium">{item.factorySku}</td>

@@ -229,8 +229,8 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
               {groupingResult.unitsTotal} units
               {groupingResult.unresolvedCount > 0 &&
                 ` · ${groupingResult.unresolvedCount} need${groupingResult.unresolvedCount === 1 ? 's' : ''} review`}
-              {groupingResult.unmappedSkuCount > 0 &&
-                ` (${groupingResult.unmappedSkuCount} unmapped SKU${groupingResult.unmappedSkuCount === 1 ? '' : 's'})`}
+              {groupingResult.autoSplitCount > 0 &&
+                ` · ${groupingResult.autoSplitCount} auto-detected from variation text`}
               {groupingResult.duplicateRowsExcluded > 0 &&
                 ` · ${groupingResult.duplicateRowsExcluded} duplicate row${groupingResult.duplicateRowsExcluded === 1 ? '' : 's'} excluded`}
             </p>

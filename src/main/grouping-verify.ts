@@ -38,16 +38,18 @@ function expect(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
 
-/** One mapping per shared SKU, wildcard variation/platform — see PROGRESS.md's Phase 4
- *  design note on why colour/size come from here rather than from parsing
- *  `raw_variation` (which uses three different separators across the sample files). */
+/** One explicit mapping per shared SKU, wildcard variation/platform — proves an explicit
+ *  mapping still overrides auto-split when one exists (see the "auto-split" note on
+ *  `classify()` in group-into-batch.ts for the Phase 6 follow-up that made mapping
+ *  optional in the first place). */
 const SHARED_SKU_MAPPINGS: NewSkuMapping[] = [
   { incomingSku: 'TEE-BLK-M', factorySku: 'TEE-BLK-M', factoryColour: 'Black', factorySize: 'M' },
   { incomingSku: 'TEE-BLK-L', factorySku: 'TEE-BLK-L', factoryColour: 'Black', factorySize: 'L' },
   { incomingSku: 'TEE-WHT-M', factorySku: 'TEE-WHT-M', factoryColour: 'White', factorySize: 'M' },
   { incomingSku: 'HOOD-NVY-L', factorySku: 'HOOD-NVY-L', factoryColour: 'Navy', factorySize: 'L' },
   { incomingSku: 'POLO-RED-S', factorySku: 'POLO-RED-S', factoryColour: 'Red', factorySize: 'S' }
-  // TT-ONLY-CAP / SP-ONLY-SOCK / LZ-ONLY-BELT deliberately left unmapped.
+  // TT-ONLY-CAP / SP-ONLY-SOCK / LZ-ONLY-BELT deliberately left without an explicit
+  // mapping, to prove the auto-split fallback below.
 ]
 
 function findItem(items: readonly ProductionItem[], factorySku: string): ProductionItem {
@@ -56,14 +58,6 @@ function findItem(items: readonly ProductionItem[], factorySku: string): Product
   return item
 }
 
-/** Unmapped items have no factory SKU — found instead by the raw SKU named in the issue note. */
-function findUnmappedItem(items: readonly ProductionItem[], rawSku: string): ProductionItem {
-  const item = items.find(
-    (candidate) => candidate.issueType === 'unknown_mapping' && candidate.issueNote.includes(rawSku)
-  )
-  if (!item) throw new Error(`No unmapped production item mentioning "${rawSku}"`)
-  return item
-}
 
 async function verify(db: StitchFlowDatabase): Promise<void> {
   console.log('\nSetup: import the three marketplace samples, map the shared SKUs')
@@ -112,13 +106,22 @@ async function verify(db: StitchFlowDatabase): Promise<void> {
     )
   })
 
-  check('three platform-only SKUs are unmapped, nothing else is', () => {
-    expect(result.unmappedSkuCount === 3, `unmappedSkuCount was ${result.unmappedSkuCount}`)
-    for (const sku of ['TT-ONLY-CAP', 'SP-ONLY-SOCK', 'LZ-ONLY-BELT']) {
-      const item = findUnmappedItem(items, sku)
-      expect(item.factorySku === '', `${sku} should have no factory SKU assigned`)
-      expect(!item.isResolved, `${sku} should be held back from printing`)
-    }
+  check('three platform-only SKUs auto-split from variation text, no mapping needed', () => {
+    expect(result.autoSplitCount === 3, `autoSplitCount was ${result.autoSplitCount}`)
+
+    const cap = findItem(items, 'TT-ONLY-CAP')
+    expect(cap.colour === '', `TT-ONLY-CAP colour was "${cap.colour}"`)
+    expect(cap.size === 'One Size', `TT-ONLY-CAP size was "${cap.size}"`)
+    expect(cap.quantity === 3, `TT-ONLY-CAP quantity was ${cap.quantity}`)
+    expect(cap.isResolved, 'TT-ONLY-CAP should be resolved automatically')
+
+    const sock = findItem(items, 'SP-ONLY-SOCK')
+    expect(sock.colour === 'Grey', `SP-ONLY-SOCK colour was "${sock.colour}"`)
+    expect(sock.size === 'Free', `SP-ONLY-SOCK size was "${sock.size}"`)
+
+    const belt = findItem(items, 'LZ-ONLY-BELT')
+    expect(belt.colour === 'Brown', `LZ-ONLY-BELT colour was "${belt.colour}"`)
+    expect(belt.size === 'Free', `LZ-ONLY-BELT size was "${belt.size}"`)
   })
 
   // Expected per-SKU totals, summed by hand from samples/generate-samples.mjs:
@@ -147,17 +150,17 @@ async function verify(db: StitchFlowDatabase): Promise<void> {
     expect(findItem(items, 'POLO-RED-S').quantity === 8, 'POLO-RED-S total wrong')
   })
 
-  check('batch totals: 8 lines, 61 units, 3 unresolved — stored totals match computed', () => {
+  check('batch totals: 8 lines, 61 units, 0 unresolved — stored totals match computed', () => {
     expect(items.length === 8, `production_items had ${items.length} rows`)
     expect(result.totals.items === 8, `totals.items was ${result.totals.items}`)
     expect(result.totals.units === 61, `totals.units was ${result.totals.units}`)
-    expect(result.totals.unresolved === 3, `totals.unresolved was ${result.totals.unresolved}`)
+    expect(result.totals.unresolved === 0, `totals.unresolved was ${result.totals.unresolved}`)
 
     const batch = db.batches.getById(result.batchId)
     expect(batch !== null, 'batch was not found')
     expect(batch!.totalItems === 8, `stored total_items was ${batch!.totalItems}`)
     expect(batch!.totalUnits === 61, `stored total_units was ${batch!.totalUnits}`)
-    expect(batch!.unresolvedCount === 3, `stored unresolved_count was ${batch!.unresolvedCount}`)
+    expect(batch!.unresolvedCount === 0, `stored unresolved_count was ${batch!.unresolvedCount}`)
   })
 
   check('all four import files (3 originals + the re-upload) were assigned to the batch', () => {

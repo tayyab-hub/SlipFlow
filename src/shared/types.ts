@@ -421,10 +421,11 @@ export interface BatchGroupingResult {
   itemsCreated: number
   /** Sum of quantities across every created line. */
   unitsTotal: number
-  /** Lines held back from printing (missing SKU, unmapped, invalid quantity). */
+  /** Lines held back from printing (missing SKU, invalid quantity). */
   unresolvedCount: number
-  /** Of those, how many were specifically an unrecognised incoming SKU. */
-  unmappedSkuCount: number
+  /** Resolved lines whose colour/size came from splitting the variation text rather
+   *  than an explicit SKU mapping — informational, not a problem. */
+  autoSplitCount: number
   /** Order lines excluded from the batch because they matched an existing hash. */
   duplicateRowsExcluded: number
 }

@@ -19,6 +19,7 @@ import type {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { compareSizes } from '@/lib/sort-size'
 import type { Navigate } from '@/App'
 
 interface ReviewPageProps {
@@ -219,13 +220,21 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
     return [...filtered].sort((a, b) => {
       switch (sortKey) {
         case 'colour':
-          return a.colour.localeCompare(b.colour) || a.factorySku.localeCompare(b.factorySku)
+          return (
+            a.colour.localeCompare(b.colour) ||
+            a.factorySku.localeCompare(b.factorySku) ||
+            compareSizes(a.size, b.size)
+          )
         case 'size':
-          return a.size.localeCompare(b.size) || a.factorySku.localeCompare(b.factorySku)
+          return compareSizes(a.size, b.size) || a.factorySku.localeCompare(b.factorySku)
         case 'quantity':
           return b.quantity - a.quantity
         default:
-          return a.factorySku.localeCompare(b.factorySku)
+          return (
+            a.factorySku.localeCompare(b.factorySku) ||
+            compareSizes(a.size, b.size) ||
+            a.colour.localeCompare(b.colour)
+          )
       }
     })
   }, [items, search, statusFilter, sortKey])
