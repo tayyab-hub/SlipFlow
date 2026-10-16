@@ -9,6 +9,6 @@
   "pdfMethod": "validated slide renders; native PDF exporter missing standard font module",
   "nativePowerPoint": "not verified",
   "animations": "none",
-  "pptxSha256": "79ea7b239655380257c8f4001064cdd7d66d1683707c6c19252cf0354ae5a6af",
-  "pdfSha256": "6b547db9c1ff9a826190d41f0e0f3e6288c84dc750c2015882347a22e03840ac"
+  "pptxSha256": "52a555798ffd858f87679f33dda38b9809ca772bafec97e39778dbfdc139d9c5",
+  "pdfSha256": "5be6d1d5e8ddabc4cb5fbfad7cccd8adc4370e132f0ce2e9a85a83fb918e3e52"
 }

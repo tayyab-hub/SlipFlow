@@ -930,3 +930,7 @@ Security: Electron updated within major 43 to 43.8.0, source-map-js and undici p
 Windows: initial NSIS installer built at release/SlipFlow-Setup-1.0.0.exe. Rebuild after final checks before installation QA. GitHub account verified as tayyab-hub in connector and Git Credential Manager. Target repository currently returns 404. No remote publication yet.
 
 Remaining: final QA/security/privacy audit, installer install/startup/uninstall checks, documentation, presentation, final Git commits/push, remote CI and gated release. Track work in DELIVERY-CHECKLIST.md. Never label unverified external checks successful.
+
+### Hosted CI follow-up
+
+Published source with preserved history. Initial Windows Server 2025 hosted runs passed dependency install, privacy scan, lint, type checking, audit and all 96 verification checks, but exposed a timing race in the partial-order UI assertion. The test now waits for rendered row count and completed batch navigation. Local full rerun: 2 PASS; targeted follow-up: 1 PASS. Hosted rerun is in progress. Final branding review also updated the remaining old-name operator messages without changing legacy database identity.

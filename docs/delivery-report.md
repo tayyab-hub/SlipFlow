@@ -4,7 +4,7 @@ Date: 2026-10-16. Developer: Muhammad Tayyab. Evidence is bounded to the environ
 
 ## A. Application status
 
-Core local workflows, documentation, presentation and Windows packaging are complete and locally verified. GitHub publication and hosted CI verification are in progress at this report revision. Real factory operation and physical printing have not been verified.
+Core local workflows, documentation, presentation and Windows packaging are complete and locally verified. Source is published and a hosted Windows workflow has passed. The final branding/artifact revision is awaiting its hosted gate before installer release publication. Real factory operation and physical printing have not been verified.
 
 ## B. Implemented functionality
 
@@ -30,7 +30,7 @@ The [editable PowerPoint](presentation/SlipFlow_Presentation.pptx) and [PDF](pre
 
 ## G. GitHub publication
 
-Target: https://github.com/tayyab-hub/SlipFlow. Authenticated account verified as `tayyab-hub`; target was available. Initial history is preserved by checkpoint `410c4ae`. Publication, remote commit verification and actual GitHub Actions result are pending at this revision. The release will be published only after the exact source commit has a successful Windows workflow run.
+Target: https://github.com/tayyab-hub/SlipFlow. Authenticated account verified as `tayyab-hub`; target was available. Initial history is preserved by checkpoint `410c4ae`. Source is published on main with matching local/remote commits. Hosted run https://github.com/tayyab-hub/SlipFlow/actions/runs/38922441777 passed after correcting a UI test timing race. The final branding/artifact revision is being verified before the release tag is published. The release will be published only after the exact source commit has a successful Windows workflow run.
 
 ## H. Limitations
 

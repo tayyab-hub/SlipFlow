@@ -131,7 +131,7 @@ function explain(missing: readonly DetectableField[], hasBreakdown: boolean): st
     problems.push('could not tell which columns hold the colour and size')
   }
 
-  return `StitchFlow ${problems.join(', and ')}.`
+  return `SlipFlow ${problems.join(', and ')}.`
 }
 
 /** Header name → column index, for applying a mapping to rows. */

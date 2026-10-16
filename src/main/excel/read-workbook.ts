@@ -110,7 +110,7 @@ export async function readSpreadsheet(
 
   if (!SUPPORTED_EXTENSIONS.includes(extension as (typeof SUPPORTED_EXTENSIONS)[number])) {
     throw new SpreadsheetReadError(
-      `"${fileName}" is a ${extension || 'file with no'} extension. StitchFlow reads .xlsx, .xls and .csv files.`
+      `"${fileName}" is a ${extension || 'file with no'} extension. SlipFlow reads .xlsx, .xls and .csv files.`
     )
   }
 
@@ -186,7 +186,7 @@ export async function readSpreadsheet(
   const headerIndex = findHeaderRow(grid)
   if (headerIndex < 0) {
     throw new SpreadsheetReadError(
-      `"${fileName}" has no column headings, so StitchFlow cannot tell what the columns mean.`
+      `"${fileName}" has no column headings, so SlipFlow cannot tell what the columns mean.`
     )
   }
 

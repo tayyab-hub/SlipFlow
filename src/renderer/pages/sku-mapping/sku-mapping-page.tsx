@@ -113,7 +113,7 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
         <div className="space-y-1">
           <h2 className="text-lg font-semibold tracking-tight">SKU Mappings</h2>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            Teach StitchFlow which incoming SKU is which factory SKU, colour and size. One mapping
+            Teach SlipFlow which incoming SKU is which factory SKU, colour and size. One mapping
             covers every platform and however that platform writes the variation — leave Platform
             and Variation blank to match by SKU alone.
           </p>
