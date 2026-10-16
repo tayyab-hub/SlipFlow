@@ -15,7 +15,7 @@ Local execution: Windows 11 x64 build 26200, Node.js 24.18.0, npm 11.16, Electro
 | Review verification | 10 PASS | Corrections, totals, merge, manual add/remove and rejection |
 | Release verification | 51 PASS | Quantity regressions, seller/line identity, provenance, approval, print, backup, migration and partial batching |
 | `npm test` | **96 PASS, 0 FAIL** | Builds and invokes all five suites above |
-| `npm run test:e2e` | **2 PASS, 0 FAIL** | Actual Electron UI workflows, 9.6 seconds in the recorded final run |
+| `npm run test:e2e` | **2 PASS, 0 FAIL** | Actual Electron UI workflows, 9.5 seconds in the recorded full run |
 | `npm run pack:win` | PASS | NSIS x64 installer and bundled resources |
 
 The original `db:verify`, `import:verify`, `grouping:verify` and `review:verify` scripts are retained. `scripts/verify.cjs` runs those same compiled entry points after one build. Two original grouping expectations were intentionally changed: unknown variants now require review instead of being auto-approved. Expected production arithmetic remains unchanged.
@@ -65,3 +65,5 @@ The 12-slide PPTX passes package/relationship checks, slide count/dimension/font
 ## Limits of the evidence
 
 No production factory dataset, physical printer, Windows 10 host or independent security penetration test was available. Automatic backup snapshot/retention code is shared with the verified backup implementation; a long-running unattended timer/disk-full soak test has not been performed. See [known limitations](known-limitations.md).
+
+The initial hosted UI run exposed an assertion timing race after opening the pending-row list. The test now waits for the expected checkbox count and completed batch navigation. Local reruns pass; hosted verification is rerun on the corrective commit. No application validation was disabled.

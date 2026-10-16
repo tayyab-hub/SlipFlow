@@ -220,6 +220,7 @@ test('operator can batch selected order lines without losing or repeating the re
     ).toBeVisible()
     await page.screenshot({ path: resolve('docs/screenshots/order-selection.png') })
     await page.getByRole('button', { name: 'Create batch from 1 files' }).click()
+    await expect(page.getByRole('heading', { name: /^Batch SF-/ })).toBeVisible()
     const first = (await page.evaluate(() => window.stitchflow.listBatches()))[0]
     expect(first.totalUnits).toBe(rows[0].quantity)
     const removal = await page.evaluate(async (id) => {
@@ -236,8 +237,9 @@ test('operator can batch selected order lines without losing or repeating the re
       .getByRole('button', { name: 'Upload Orders', exact: true })
       .click()
     await page.getByRole('button', { name: 'Choose rows', exact: true }).click()
-    expect(await page.getByRole('checkbox').count()).toBe(rows.length)
+    await expect(page.getByRole('checkbox')).toHaveCount(rows.length)
     await page.getByRole('button', { name: 'Create batch from 1 files' }).click()
+    await expect(page.getByRole('heading', { name: /^Batch SF-/ })).toBeVisible()
     const batches = await page.evaluate(() => window.stitchflow.listBatches())
     expect(batches).toHaveLength(2)
     expect(batches.reduce((sum, b) => sum + b.totalUnits, 0)).toBe(
