@@ -42,7 +42,8 @@ export function ManualMapping({ result, busy, onCancel, onSubmit }: ManualMappin
   )
 
   const missingRequired = REQUIRED_MAPPING_FIELDS.filter((field) => mapping[field] === NOT_PRESENT)
-  const canImport = missingRequired.length === 0
+  const chosen = Object.values(mapping).filter(Boolean)
+  const canImport = missingRequired.length === 0 && new Set(chosen).size === chosen.length
 
   function choose(field: MappableField, column: string): void {
     setMapping((current) => ({ ...current, [field]: column }))
@@ -63,12 +64,10 @@ export function ManualMapping({ result, busy, onCancel, onSubmit }: ManualMappin
             <CircleHelp className="size-5" />
           </div>
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold tracking-tight">
-              We need help reading this file
-            </h2>
+            <h2 className="text-lg font-semibold tracking-tight">Preview and confirm import</h2>
             <p className="max-w-2xl text-sm text-muted-foreground">
-              {preview?.reason ?? result.message} Tell StitchFlow which column holds what, and it
-              will remember for next time.
+              {preview?.reason ?? result.message} Tell SlipFlow which column holds what, and it will
+              remember for next time.
             </p>
           </div>
         </div>

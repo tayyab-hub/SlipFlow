@@ -1,4 +1,5 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { ipcMain } from './trusted-ipc'
+import { BrowserWindow, dialog } from 'electron'
 import { IpcChannels } from '@shared/ipc-channels'
 import type {
   BulkImportSkuMappingsResult,
@@ -8,6 +9,7 @@ import type {
 } from '@shared/types'
 import { getDatabase } from '../db'
 import { importSkuMappings } from '../excel/import-sku-mappings'
+import { boundedText, positiveId } from '@shared/validation'
 
 function assertNewMapping(value: unknown): NewSkuMapping {
   if (typeof value !== 'object' || value === null) {
@@ -22,14 +24,16 @@ function assertNewMapping(value: unknown): NewSkuMapping {
     throw new TypeError('factorySku is required')
   }
 
+  if (!['', 'tiktok', 'shopee', 'lazada', 'unknown'].includes(String(input.platform ?? '')))
+    throw new Error('Platform must be tiktok, shopee, lazada, unknown, or blank for all.')
   return {
-    incomingSku: input.incomingSku,
-    factorySku: input.factorySku,
-    incomingVariation: typeof input.incomingVariation === 'string' ? input.incomingVariation : '',
-    platform: typeof input.platform === 'string' ? input.platform : '',
-    factoryColour: typeof input.factoryColour === 'string' ? input.factoryColour : '',
-    factorySize: typeof input.factorySize === 'string' ? input.factorySize : '',
-    notes: typeof input.notes === 'string' ? input.notes : ''
+    incomingSku: boundedText(input.incomingSku, 'Incoming SKU', true),
+    factorySku: boundedText(input.factorySku, 'Factory SKU', true),
+    incomingVariation: boundedText(input.incomingVariation ?? '', 'Variation'),
+    platform: boundedText(input.platform ?? '', 'Platform'),
+    factoryColour: boundedText(input.factoryColour ?? '', 'Colour'),
+    factorySize: boundedText(input.factorySize ?? '', 'Size'),
+    notes: boundedText(input.notes ?? '', 'Notes', false, 2000)
   }
 }
 
@@ -55,12 +59,27 @@ export function registerSkuMappingHandlers(): void {
   })
 
   ipcMain.handle(IpcChannels.skuMappingsCreate, (_event, input: unknown): SkuMapping => {
-    return getDatabase().skuMappings.upsert(assertNewMapping(input))
+    return getDatabase().skuMappings.create(assertNewMapping(input))
   })
 
   ipcMain.handle(IpcChannels.skuMappingsUpdate, (_event, input: unknown): SkuMapping | null => {
     const { id, changes } = assertUpdateRequest(input)
-    return getDatabase().skuMappings.update(id, changes)
+    const db = getDatabase(),
+      existing = db.skuMappings.getById(positiveId(id))
+    if (!existing) throw new Error('Mapping no longer exists.')
+    const allowed = [
+      'incomingSku',
+      'incomingVariation',
+      'platform',
+      'factorySku',
+      'factoryColour',
+      'factorySize',
+      'notes'
+    ]
+    if (Object.keys(changes).some((k) => !allowed.includes(k)))
+      throw new Error('Unknown mapping field.')
+    const checked = assertNewMapping({ ...existing, ...changes })
+    return db.skuMappings.update(id, checked)
   })
 
   ipcMain.handle(IpcChannels.skuMappingsRemove, (_event, id: unknown): boolean => {
@@ -78,9 +97,7 @@ export function registerSkuMappingHandlers(): void {
         title: 'Choose a SKU mapping file',
         buttonLabel: 'Import',
         properties: ['openFile'],
-        filters: [
-          { name: 'SKU mapping files', extensions: ['xlsx', 'xls', 'csv'] }
-        ]
+        filters: [{ name: 'SKU mapping files', extensions: ['xlsx', 'xls', 'csv'] }]
       }
 
       const result = window

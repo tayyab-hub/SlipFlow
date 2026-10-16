@@ -21,6 +21,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { compareSizes } from '@/lib/sort-size'
 import type { Navigate } from '@/App'
+import { quantityFromText } from '@shared/validation'
+import type { SourceOrder } from '@shared/delivery'
 
 interface ReviewPageProps {
   /** No id — falls back to the most recently created batch. */
@@ -79,38 +81,40 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
   const [sortKey, setSortKey] = useState<SortKey>('sku')
   const [draft, setDraft] = useState<EditDraft | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [sources, setSources] = useState<SourceOrder[] | null>(null)
 
-  const load = useCallback(
-    async (targetBatchId: number | undefined, keepFilter: boolean) => {
-      setLoading(true)
-      setNotice(null)
-      try {
-        const resolvedBatch = targetBatchId
-          ? await window.stitchflow.getBatch(targetBatchId)
-          : ((await window.stitchflow.listBatches({ limit: 1 }))[0] ?? null)
+  const load = useCallback(async (targetBatchId: number | undefined, keepFilter: boolean) => {
+    setLoading(true)
+    setNotice(null)
+    try {
+      const resolvedBatch = targetBatchId
+        ? await window.stitchflow.getBatch(targetBatchId)
+        : ((await window.stitchflow.listBatches({ limit: 1 }))[0] ?? null)
 
-        setBatch(resolvedBatch)
+      setBatch(resolvedBatch)
 
-        const nextItems = resolvedBatch
-          ? await window.stitchflow.listProductionItems(resolvedBatch.id)
-          : []
-        setItems(nextItems)
+      const nextItems = resolvedBatch
+        ? await window.stitchflow.listProductionItems(resolvedBatch.id)
+        : []
+      setItems(nextItems)
 
-        if (!keepFilter) {
-          setStatusFilter(nextItems.some(isUnresolved) ? 'needs-review' : 'all')
-          setFilterInitialised(true)
-        }
-      } catch (error) {
-        setNotice(error instanceof Error ? error.message : 'Could not load this batch.')
-      } finally {
-        setLoading(false)
+      if (!keepFilter) {
+        setStatusFilter(nextItems.some(isUnresolved) ? 'needs-review' : 'all')
+        setFilterInitialised(true)
       }
-    },
-    []
-  )
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not load this batch.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     void load(batchId, false)
+    void window.stitchflow
+      .getSettings()
+      .then((s) => setSortKey(s.defaultSort))
+      .catch(() => {})
   }, [batchId, load])
 
   async function refreshAfterMutation(): Promise<void> {
@@ -121,13 +125,15 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
   async function saveDraft(): Promise<void> {
     if (!draft || !batch) return
 
-    const quantity = Number(draft.quantity)
+    const quantity = quantityFromText(draft.quantity)
     if (draft.factorySku.trim() === '') {
       setNotice('Factory SKU is required.')
       return
     }
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      setNotice('Quantity must be a positive number.')
+    if (quantity === null || !draft.colour.trim() || !draft.size.trim()) {
+      setNotice(
+        'Enter a positive whole quantity and confirm colour and size. Use N/A only when verified.'
+      )
       return
     }
 
@@ -164,6 +170,12 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
   }
 
   async function removeItem(item: ProductionItem): Promise<void> {
+    if (
+      !window.confirm(
+        'Remove this production item? Its source orders remain in history and a reconciliation note may be required.'
+      )
+    )
+      return
     setBusy(true)
     setNotice(null)
     try {
@@ -213,7 +225,13 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
     const filtered = items.filter((item) => {
       if (statusFilter === 'needs-review' && !isUnresolved(item)) return false
       if (statusFilter === 'resolved' && isUnresolved(item)) return false
-      if (term && !item.factorySku.toLowerCase().includes(term)) return false
+      if (
+        term &&
+        !`${item.factorySku} ${item.colour} ${item.size} ${item.issueNote}`
+          .toLowerCase()
+          .includes(term)
+      )
+        return false
       return true
     })
 
@@ -264,9 +282,7 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold tracking-tight">
-            Batch {batch.batchNumber}
-          </h2>
+          <h2 className="text-lg font-semibold tracking-tight">Batch {batch.batchNumber}</h2>
           <p className="text-sm text-muted-foreground">
             {items.length} line{items.length === 1 ? '' : 's'} · {totalUnits} units
             {unresolvedCount > 0 &&
@@ -274,6 +290,9 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
+          <Button size="sm" onClick={() => onNavigate('history', batch.id)}>
+            Reconcile / approve
+          </Button>
           {selected.size >= 2 && (
             <Button size="sm" onClick={() => void mergeSelected()} disabled={busy}>
               <Merge />
@@ -291,6 +310,34 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
           </Button>
         </div>
       </div>
+
+      {batch.status !== 'draft' && (
+        <p className="rounded border bg-muted p-3 text-sm">
+          This {batch.status} batch is locked. Ready batches can return to draft in History.
+        </p>
+      )}
+      {sources && (
+        <Card className="space-y-2 p-4">
+          <div className="flex justify-between">
+            <h3 className="font-semibold">Item source records</h3>
+            <Button variant="ghost" onClick={() => setSources(null)}>
+              Close
+            </Button>
+          </div>
+          {sources.length ? (
+            sources.map((o) => (
+              <p key={o.id} className="text-xs">
+                {o.fileName} · worksheet {o.sheetName} · row {o.rowNumber} · {o.platform}/
+                {o.sellerName} · order {o.orderId} · {o.rawSku} · quantity {o.rawQuantity}
+              </p>
+            ))
+          ) : (
+            <p className="text-sm">
+              Manual or legacy item. Batch source records remain available in History.
+            </p>
+          )}
+        </Card>
+      )}
 
       {notice && (
         <p
@@ -331,7 +378,7 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
           size="sm"
           variant="secondary"
           onClick={() => setDraft(emptyDraft())}
-          disabled={busy || draft?.targetId === 'new'}
+          disabled={busy || batch.status !== 'draft' || draft?.targetId === 'new'}
         >
           <Plus />
           Add row
@@ -339,13 +386,21 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
       </Card>
 
       {draft?.targetId === 'new' && (
-        <DraftForm draft={draft} setDraft={setDraft} onSave={saveDraft} onCancel={() => setDraft(null)} busy={busy} />
+        <DraftForm
+          draft={draft}
+          setDraft={setDraft}
+          onSave={saveDraft}
+          onCancel={() => setDraft(null)}
+          busy={busy}
+        />
       )}
 
       <Card className="overflow-hidden p-0">
         {visibleItems.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-muted-foreground">
-            {items.length === 0 ? 'No production lines in this batch.' : 'Nothing matches that filter.'}
+            {items.length === 0
+              ? 'No production lines in this batch.'
+              : 'Nothing matches that filter.'}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -420,11 +475,23 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
                       <td className="px-4 py-2">
                         <div className="flex justify-end gap-1">
                           <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              void window.stitchflow
+                                .itemSources(item.id)
+                                .then(setSources)
+                                .catch((e) => setNotice(String(e)))
+                            }
+                          >
+                            Source
+                          </Button>
+                          <Button
                             size="icon"
                             variant="ghost"
                             title={isUnresolved(item) ? 'Fix this row' : 'Edit this row'}
                             onClick={() => setDraft(draftFromItem(item))}
-                            disabled={busy}
+                            disabled={busy || batch.status !== 'draft'}
                           >
                             <Pencil />
                           </Button>
@@ -433,7 +500,7 @@ export function ReviewPage({ batchId, onNavigate }: ReviewPageProps) {
                             variant="ghost"
                             title="Remove this row"
                             onClick={() => void removeItem(item)}
-                            disabled={busy}
+                            disabled={busy || batch.status !== 'draft'}
                           >
                             <Trash2 />
                           </Button>
@@ -464,10 +531,31 @@ function DraftForm({ draft, setDraft, onSave, onCancel, busy }: DraftFormProps) 
   return (
     <Card className="space-y-3 p-4">
       <div className="grid gap-3 sm:grid-cols-5">
-        <Field label="Factory SKU" value={draft.factorySku} onChange={(v) => setDraft({ ...draft, factorySku: v })} disabled={busy} />
-        <Field label="Colour" value={draft.colour} onChange={(v) => setDraft({ ...draft, colour: v })} disabled={busy} />
-        <Field label="Size" value={draft.size} onChange={(v) => setDraft({ ...draft, size: v })} disabled={busy} />
-        <Field label="Quantity" value={draft.quantity} onChange={(v) => setDraft({ ...draft, quantity: v })} disabled={busy} type="number" />
+        <Field
+          label="Factory SKU"
+          value={draft.factorySku}
+          onChange={(v) => setDraft({ ...draft, factorySku: v })}
+          disabled={busy}
+        />
+        <Field
+          label="Colour"
+          value={draft.colour}
+          onChange={(v) => setDraft({ ...draft, colour: v })}
+          disabled={busy}
+        />
+        <Field
+          label="Size"
+          value={draft.size}
+          onChange={(v) => setDraft({ ...draft, size: v })}
+          disabled={busy}
+        />
+        <Field
+          label="Quantity"
+          value={draft.quantity}
+          onChange={(v) => setDraft({ ...draft, quantity: v })}
+          disabled={busy}
+          type="number"
+        />
         <div className="flex items-end gap-2">
           <Button onClick={onSave} disabled={busy} className="flex-1">
             Save

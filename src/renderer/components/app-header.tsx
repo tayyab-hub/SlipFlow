@@ -25,7 +25,7 @@ export function AppHeader({ breadcrumb, onHome }: AppHeaderProps) {
 
           <div>
             <h1 className="text-lg font-semibold leading-tight tracking-tight">
-              StitchFlow
+              SlipFlow
               {breadcrumb && (
                 <span className="font-normal text-muted-foreground"> · {breadcrumb}</span>
               )}
@@ -34,8 +34,7 @@ export function AppHeader({ breadcrumb, onHome }: AppHeaderProps) {
           </div>
         </div>
 
-        {/* Populated from Settings in Phase 7. */}
-        <p className="text-xs text-muted-foreground">Factory name not set</p>
+        <p className="text-xs text-muted-foreground">Offline workspace</p>
       </div>
     </header>
   )

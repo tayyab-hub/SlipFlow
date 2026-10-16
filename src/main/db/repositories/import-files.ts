@@ -1,17 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { DetectionStatus, ImportFile, ImportFileUpdate, NewImportFile } from '@shared/types'
-import {
-  nowIso,
-  readInteger,
-  readNullableInteger,
-  readText,
-  type DbRow
-} from '../rows'
+import { nowIso, readInteger, readNullableInteger, readText, type DbRow } from '../rows'
 import { createUpdate } from '../update-builder'
 
 function toImportFile(row: DbRow): ImportFile {
   return {
     id: readInteger(row, 'id'),
+    sellerAccountId: readNullableInteger(row, 'seller_account_id'),
     batchId: readNullableInteger(row, 'batch_id'),
     columnMappingId: readNullableInteger(row, 'column_mapping_id'),
     fileName: readText(row, 'file_name'),
@@ -41,18 +36,18 @@ export function createImportFilesRepository(db: DatabaseSync): ImportFilesReposi
   const insert = db.prepare(`
     INSERT INTO import_files (
       batch_id, column_mapping_id, file_name, file_path, file_hash, file_size,
-      sheet_name, platform, row_count, detection_status, imported_at
+      sheet_name, platform, row_count, detection_status, imported_at, seller_account_id
     ) VALUES (
       $batch_id, $column_mapping_id, $file_name, $file_path, $file_hash, $file_size,
-      $sheet_name, $platform, $row_count, $detection_status, $imported_at
+      $sheet_name, $platform, $row_count, $detection_status, $imported_at, $seller_account_id
     )
   `)
   const selectById = db.prepare('SELECT * FROM import_files WHERE id = ?')
   const selectByHash = db.prepare(
-    'SELECT * FROM import_files WHERE file_hash = ? AND file_hash <> \'\' ORDER BY imported_at DESC'
+    "SELECT * FROM import_files WHERE file_hash = ? AND file_hash <> '' ORDER BY imported_at DESC"
   )
   const selectByBatch = db.prepare(
-    'SELECT * FROM import_files WHERE batch_id = ? ORDER BY imported_at, id'
+    'SELECT * FROM import_files WHERE batch_id = ? OR id IN (SELECT import_file_id FROM imported_orders WHERE batch_id = ?) ORDER BY imported_at, id'
   )
   const selectUnassigned = db.prepare(
     'SELECT * FROM import_files WHERE batch_id IS NULL ORDER BY imported_at, id'
@@ -68,6 +63,7 @@ export function createImportFilesRepository(db: DatabaseSync): ImportFilesReposi
     create(input) {
       const result = insert.run({
         $batch_id: input.batchId ?? null,
+        $seller_account_id: input.sellerAccountId ?? null,
         $column_mapping_id: input.columnMappingId ?? null,
         $file_name: input.fileName,
         $file_path: input.filePath ?? '',
@@ -92,7 +88,7 @@ export function createImportFilesRepository(db: DatabaseSync): ImportFilesReposi
     },
 
     listByBatch(batchId) {
-      return selectByBatch.all(batchId).map(toImportFile)
+      return selectByBatch.all(batchId, batchId).map(toImportFile)
     },
 
     listUnassigned() {

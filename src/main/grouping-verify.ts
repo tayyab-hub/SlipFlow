@@ -58,7 +58,6 @@ function findItem(items: readonly ProductionItem[], factorySku: string): Product
   return item
 }
 
-
 async function verify(db: StitchFlowDatabase): Promise<void> {
   console.log('\nSetup: import the three marketplace samples, map the shared SKUs')
 
@@ -106,14 +105,19 @@ async function verify(db: StitchFlowDatabase): Promise<void> {
     )
   })
 
-  check('three platform-only SKUs auto-split from variation text, no mapping needed', () => {
-    expect(result.autoSplitCount === 3, `autoSplitCount was ${result.autoSplitCount}`)
+  // Release requirement supersedes the checkpoint's unsafe automatic-approval policy.
+  check('three platform-only SKUs retain suggestions but require explicit review', () => {
+    expect(result.autoSplitCount === 0, `autoSplitCount was ${result.autoSplitCount}`)
+    expect(result.unmappedSkuCount === 3, `unmappedSkuCount was ${result.unmappedSkuCount}`)
 
     const cap = findItem(items, 'TT-ONLY-CAP')
     expect(cap.colour === '', `TT-ONLY-CAP colour was "${cap.colour}"`)
     expect(cap.size === 'One Size', `TT-ONLY-CAP size was "${cap.size}"`)
     expect(cap.quantity === 3, `TT-ONLY-CAP quantity was ${cap.quantity}`)
-    expect(cap.isResolved, 'TT-ONLY-CAP should be resolved automatically')
+    expect(
+      !cap.isResolved && cap.issueType === 'unknown_mapping',
+      'TT-ONLY-CAP must require review'
+    )
 
     const sock = findItem(items, 'SP-ONLY-SOCK')
     expect(sock.colour === 'Grey', `SP-ONLY-SOCK colour was "${sock.colour}"`)
@@ -122,6 +126,7 @@ async function verify(db: StitchFlowDatabase): Promise<void> {
     const belt = findItem(items, 'LZ-ONLY-BELT')
     expect(belt.colour === 'Brown', `LZ-ONLY-BELT colour was "${belt.colour}"`)
     expect(belt.size === 'Free', `LZ-ONLY-BELT size was "${belt.size}"`)
+    expect(!sock.isResolved && !belt.isResolved, 'Unknown variants must never be auto-approved')
   })
 
   // Expected per-SKU totals, summed by hand from samples/generate-samples.mjs:
@@ -150,17 +155,17 @@ async function verify(db: StitchFlowDatabase): Promise<void> {
     expect(findItem(items, 'POLO-RED-S').quantity === 8, 'POLO-RED-S total wrong')
   })
 
-  check('batch totals: 8 lines, 61 units, 0 unresolved — stored totals match computed', () => {
+  check('batch totals: 8 lines, 61 units, 3 unresolved — stored totals match computed', () => {
     expect(items.length === 8, `production_items had ${items.length} rows`)
     expect(result.totals.items === 8, `totals.items was ${result.totals.items}`)
     expect(result.totals.units === 61, `totals.units was ${result.totals.units}`)
-    expect(result.totals.unresolved === 0, `totals.unresolved was ${result.totals.unresolved}`)
+    expect(result.totals.unresolved === 3, `totals.unresolved was ${result.totals.unresolved}`)
 
     const batch = db.batches.getById(result.batchId)
     expect(batch !== null, 'batch was not found')
     expect(batch!.totalItems === 8, `stored total_items was ${batch!.totalItems}`)
     expect(batch!.totalUnits === 61, `stored total_units was ${batch!.totalUnits}`)
-    expect(batch!.unresolvedCount === 0, `stored unresolved_count was ${batch!.unresolvedCount}`)
+    expect(batch!.unresolvedCount === 3, `stored unresolved_count was ${batch!.unresolvedCount}`)
   })
 
   check('all four import files (3 originals + the re-upload) were assigned to the batch', () => {
@@ -175,7 +180,10 @@ async function verify(db: StitchFlowDatabase): Promise<void> {
   check('bulk import writes the valid rows and reports the bad one, nothing partial', () => {
     expect(bulk.imported === 2, `imported was ${bulk.imported}`)
     expect(bulk.errors.length === 1, `errors had ${bulk.errors.length} entries`)
-    expect(bulk.errors[0]?.reason.includes('Factory SKU'), `error reason was "${bulk.errors[0]?.reason}"`)
+    expect(
+      bulk.errors[0]?.reason.includes('Factory SKU'),
+      `error reason was "${bulk.errors[0]?.reason}"`
+    )
 
     const written = db.skuMappings.list({ search: 'TT-ONLY-CAP' })
     expect(written.length === 1, 'the valid TT-ONLY-CAP row from the bulk file was not written')

@@ -14,6 +14,11 @@ import { placeholders } from '../update-builder'
 function toImportedOrder(row: DbRow): ImportedOrder {
   return {
     id: readInteger(row, 'id'),
+    sellerAccountId: readNullableInteger(row, 'seller_account_id'),
+    rawQuantity: readText(row, 'raw_quantity'),
+    orderLineId: readText(row, 'order_line_id'),
+    validationNote: readText(row, 'validation_note'),
+    productName: readText(row, 'product_name'),
     importFileId: readInteger(row, 'import_file_id'),
     batchId: readNullableInteger(row, 'batch_id'),
     rowNumber: readInteger(row, 'row_number'),
@@ -56,11 +61,11 @@ export function createImportedOrdersRepository(db: DatabaseSync): ImportedOrders
     INSERT INTO imported_orders (
       import_file_id, batch_id, row_number, order_id, platform,
       raw_sku, raw_variation, raw_colour, raw_size, quantity,
-      duplicate_hash, is_duplicate, created_at
+      duplicate_hash, is_duplicate, created_at, seller_account_id, raw_quantity, order_line_id, validation_note, product_name
     ) VALUES (
       $import_file_id, $batch_id, $row_number, $order_id, $platform,
       $raw_sku, $raw_variation, $raw_colour, $raw_size, $quantity,
-      $duplicate_hash, $is_duplicate, $created_at
+      $duplicate_hash, $is_duplicate, $created_at, $seller_account_id, $raw_quantity, $order_line_id, $validation_note, $product_name
     )
   `)
   const selectById = db.prepare('SELECT * FROM imported_orders WHERE id = ?')
@@ -70,9 +75,7 @@ export function createImportedOrdersRepository(db: DatabaseSync): ImportedOrders
   const selectByBatch = db.prepare(
     'SELECT * FROM imported_orders WHERE batch_id = ? ORDER BY import_file_id, row_number, id'
   )
-  const assign = db.prepare(
-    'UPDATE imported_orders SET batch_id = ? WHERE import_file_id = ?'
-  )
+  const assign = db.prepare('UPDATE imported_orders SET batch_id = ? WHERE import_file_id = ?')
   const clearDuplicate = db.prepare(
     'UPDATE imported_orders SET is_duplicate = 0 WHERE import_file_id = ?'
   )
@@ -82,6 +85,11 @@ export function createImportedOrdersRepository(db: DatabaseSync): ImportedOrders
   function bind(input: NewImportedOrder): Record<string, string | number | null> {
     return {
       $import_file_id: input.importFileId,
+      $seller_account_id: input.sellerAccountId ?? null,
+      $raw_quantity: input.rawQuantity ?? String(input.quantity ?? 0),
+      $order_line_id: input.orderLineId ?? '',
+      $validation_note: input.validationNote ?? '',
+      $product_name: input.productName ?? '',
       $batch_id: input.batchId ?? null,
       $row_number: input.rowNumber ?? 0,
       $order_id: input.orderId ?? '',

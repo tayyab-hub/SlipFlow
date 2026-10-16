@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-16",
+  "environment": {
+    "os": "Windows 11 x64 build 26200",
+    "node": "24.18.0",
+    "npm": "11.16",
+    "electron": "43.8.0"
+  },
+  "lint": "pass",
+  "typecheck": "pass",
+  "productionBuild": "pass",
+  "verification": {
+    "database": 11,
+    "import": 13,
+    "grouping": 11,
+    "review": 10,
+    "release": 51,
+    "totalPassed": 96,
+    "failed": 0
+  },
+  "playwright": {
+    "passed": 2,
+    "failed": 0,
+    "durationSeconds": 9.6
+  },
+  "benchmark": {
+    "input": "synthetic CSV",
+    "rows": 10000,
+    "units": 10000,
+    "milliseconds": 2201,
+    "scope": "single local import run; no factory time-saving inference"
+  },
+  "pdf": {
+    "format": "A4",
+    "pages": 7,
+    "productionRows": 120,
+    "units": 120,
+    "repeatedHeaders": true,
+    "visualInspection": "first and last pages"
+  },
+  "operationalSample": {
+    "originalRows": 28,
+    "repeatedRowsExcluded": 12,
+    "groupedLines": 8,
+    "units": 61
+  },
+  "unverified": [
+    "physical printers",
+    "live marketplace exports",
+    "real factory operation",
+    "Windows 10",
+    "native Microsoft PowerPoint"
+  ]
+}

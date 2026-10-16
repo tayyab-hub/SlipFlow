@@ -1,5 +1,8 @@
 import type { ProductionItem } from '@shared/types'
 import type { StitchFlowDatabase } from '../db'
+import { requireDraft } from './batch-policy'
+import { validQuantity } from '@shared/validation'
+import { audit, mergeSources } from '../db/repositories/delivery'
 
 /**
  * Writes `total_items` / `total_units` / `unresolved_count` back onto the batch row.
@@ -30,6 +33,8 @@ export function mergeProductionItems(
     throw new Error('Merging needs at least two production items')
   }
 
+  if (new Set(ids).size !== ids.length) throw new Error('The same item cannot be merged twice.')
+  requireDraft(db, batchId)
   return db.transaction(() => {
     const items = ids.map((id) => {
       const item = db.productionItems.getById(id)
@@ -42,8 +47,20 @@ export function mergeProductionItems(
 
     const [primary, ...rest] = [...items].sort((a, b) => a.sortOrder - b.sortOrder)
     if (!primary) throw new Error('Nothing to merge')
+    if (
+      items.some(
+        (i) =>
+          !i.isResolved ||
+          i.issueType ||
+          i.factorySku !== primary.factorySku ||
+          i.colour !== primary.colour ||
+          i.size !== primary.size
+      )
+    )
+      throw new Error('Only resolved items with identical SKU, colour and size can be merged.')
 
     const quantity = items.reduce((sum, item) => sum + item.quantity, 0)
+    if (!validQuantity(quantity)) throw new Error('Merged quantity is outside the supported range.')
     const platforms = new Set<string>()
     for (const item of items) {
       for (const platform of item.sourcePlatforms.split(',')) {
@@ -63,7 +80,14 @@ export function mergeProductionItems(
     })
     if (!merged) throw new Error('Merged production item could not be read back')
 
+    for (const item of rest) mergeSources(db, primary.id, item.id)
     db.productionItems.removeMany(rest.map((item) => item.id))
+    audit(
+      db,
+      batchId,
+      'merged',
+      `Items ${ids.join(', ')} merged into ${primary.id}; quantity ${quantity}`
+    )
     recomputeBatchTotals(db, batchId)
 
     return merged

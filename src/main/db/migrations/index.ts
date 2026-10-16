@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { nowIso } from '../rows'
 import initSql from './0001_init.sql?raw'
+import deliverySql from './0002_delivery.sql?raw'
 
 /**
  * Migration registry.
@@ -16,7 +17,10 @@ interface Migration {
   sql: string
 }
 
-const MIGRATIONS: readonly Migration[] = [{ id: 1, name: '0001_init', sql: initSql }]
+const MIGRATIONS: readonly Migration[] = [
+  { id: 1, name: '0001_init', sql: initSql },
+  { id: 2, name: '0002_delivery', sql: deliverySql }
+]
 
 /** Applied-migration bookkeeping. Infrastructure, not a domain table. */
 const MIGRATIONS_TABLE = `
@@ -51,6 +55,7 @@ export function runMigrations(db: DatabaseSync): MigrationResult {
   )
 
   const applied: number[] = []
+  if ([...appliedIds].some(id=>id > MIGRATIONS.length)) throw new Error('This database was created by a newer SlipFlow version. Upgrade the application before opening it.')
   const record = db.prepare(
     'INSERT INTO schema_migrations (id, name, applied_at) VALUES (?, ?, ?)'
   )

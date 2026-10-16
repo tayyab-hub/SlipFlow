@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 /**
  * The app's identity and data location, pinned before anything reads a path.
@@ -15,14 +15,19 @@ import { join } from 'node:path'
  *
  * Must be called at module scope in every entry point, i.e. before `app.whenReady()`.
  */
-export const APP_NAME = 'StitchFlow'
+export const APP_NAME = 'SlipFlow'
 export const APP_USER_MODEL_ID = 'com.factorysoftware.stitchflow'
 
 export function applyAppIdentity(): void {
   app.setName(APP_NAME)
 
   // `setPath` requires the directory to exist.
-  const userDataDirectory = join(app.getPath('appData'), APP_NAME)
+  // Explicit launch option for isolated verification or an operator-managed portable data directory.
+  // Without this opt-in the historical database location is unchanged.
+  const explicitDirectory = app.commandLine.getSwitchValue('user-data-dir')
+  const userDataDirectory = explicitDirectory
+    ? resolve(explicitDirectory)
+    : join(app.getPath('appData'), 'StitchFlow')
   mkdirSync(userDataDirectory, { recursive: true })
   app.setPath('userData', userDataDirectory)
 

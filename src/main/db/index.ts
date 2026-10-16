@@ -1,11 +1,8 @@
 import { DatabaseSync } from 'node:sqlite'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { runMigrations } from './migrations'
 import { ensureDirectory } from './paths'
-import {
-  createBatchesRepository,
-  type BatchesRepository
-} from './repositories/batches'
+import { createBatchesRepository, type BatchesRepository } from './repositories/batches'
 import {
   createColumnMappingsRepository,
   type ColumnMappingsRepository
@@ -26,10 +23,7 @@ import {
   createSkuMappingsRepository,
   type SkuMappingsRepository
 } from './repositories/sku-mappings'
-import {
-  createSettingsRepository,
-  type SettingsRepository
-} from './repositories/settings'
+import { createSettingsRepository, type SettingsRepository } from './repositories/settings'
 
 /**
  * The database handle plus one repository per table.
@@ -78,7 +72,28 @@ export function openDatabase(filePath: string): StitchFlowDatabase {
   raw.exec('PRAGMA journal_mode = WAL')
   raw.exec('PRAGMA synchronous = NORMAL')
 
-  const migration = runMigrations(raw)
+  let migration: ReturnType<typeof runMigrations>
+  try {
+    const prior = raw
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'")
+      .get()
+    if (prior && filePath !== ':memory:') {
+      const version = Number(
+        raw.prepare('SELECT MAX(id) AS version FROM schema_migrations').get()?.version ?? 0
+      )
+      if (version === 1) {
+        const directory = join(dirname(filePath), 'backups')
+        ensureDirectory(directory)
+        raw
+          .prepare('VACUUM INTO ?')
+          .run(join(directory, `slipflow-recovery-schema1-${Date.now()}.db`))
+      }
+    }
+    migration = runMigrations(raw)
+  } catch (error) {
+    raw.close()
+    throw error
+  }
 
   function transaction<T>(work: () => T): T {
     if (raw.isTransaction) return work()

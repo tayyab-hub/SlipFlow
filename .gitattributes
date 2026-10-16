@@ -1,20 +1,7 @@
-# Normalise line endings so diffs stay clean across machines.
-* text=auto eol=lf
-
-# Windows-only scripts keep CRLF
-*.bat text eol=crlf
-*.cmd text eol=crlf
-*.ps1 text eol=crlf
-
-# Binary — never touch, never diff
-*.png binary
-*.jpg binary
-*.ico binary
-*.icns binary
-*.woff binary
-*.woff2 binary
+* text=auto
+*.pdf binary
+*.pptx binary
 *.xlsx binary
 *.xls binary
-*.db binary
-*.sqlite binary
-*.node binary
+*.png binary
+*.ico binary

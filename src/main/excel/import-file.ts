@@ -1,10 +1,7 @@
 import { createHash } from 'node:crypto'
-import type {
-  DetectionStatus,
-  FieldMapping,
-  NewImportedOrder,
-  UploadResult
-} from '@shared/types'
+import { quantityFromText } from '@shared/validation'
+import { listSellers, duplicateDecision } from '../db/repositories/delivery'
+import type { DetectionStatus, FieldMapping, NewImportedOrder, UploadResult } from '@shared/types'
 import type { StitchFlowDatabase } from '../db'
 import { detectColumns, resolveColumnIndexes } from './detect-columns'
 import { detectPlatform } from './detect-platform'
@@ -15,6 +12,9 @@ import { readSpreadsheet, SpreadsheetReadError, type SpreadsheetContents } from 
 const PREVIEW_ROWS = 5
 
 export interface ImportOptions {
+  sellerAccountId?: number
+  sheetName?: string
+  previewOnly?: boolean
   /** Supplied by the manual-mapping screen; skips auto-detection entirely. */
   mapping?: FieldMapping
   /** Save `mapping` against this file's header signature for reuse. */
@@ -44,7 +44,7 @@ export async function importSpreadsheet(
   let contents: SpreadsheetContents
 
   try {
-    contents = await readSpreadsheet(filePath)
+    contents = await readSpreadsheet(filePath, options.sheetName)
   } catch (error) {
     const message =
       error instanceof SpreadsheetReadError
@@ -56,7 +56,22 @@ export async function importSpreadsheet(
   const { headers, rows } = contents
   const signature = buildHeaderSignature(headers)
   const platformGuess = detectPlatform(headers, contents.fileName)
-  const platform = options.platform ?? platformGuess.platform
+  const seller = options.sellerAccountId
+    ? listSellers(db).find((s) => s.id === options.sellerAccountId && s.active)
+    : undefined
+  if (options.sellerAccountId && !seller)
+    return failure(filePath, 'Select an active seller account.')
+  const platform = seller?.platform ?? options.platform ?? platformGuess.platform
+  if (
+    seller &&
+    platformGuess.confidence >= 0.8 &&
+    platformGuess.platform !== 'unknown' &&
+    seller.platform !== platformGuess.platform
+  )
+    return failure(
+      filePath,
+      'The selected seller marketplace conflicts with this file. Select the correct seller.'
+    )
 
   const detection = detectColumns(headers)
   const savedMapping = options.mapping ? null : db.columnMappings.findBySignature(signature)
@@ -83,7 +98,6 @@ export async function importSpreadsheet(
     detectionStatus = 'manual'
     columnMappingId = savedMapping.id
     usedSavedMapping = true
-    db.columnMappings.recordUse(savedMapping.id)
   } else if (detection.ok) {
     mapping = detection.mapping
     detectionStatus = 'auto'
@@ -125,6 +139,13 @@ export async function importSpreadsheet(
   }
 
   let invalidQuantityRows = 0
+  const occurrences = new Map<string, number>()
+  const lineColumn = headers.findIndex((h) =>
+    /^(order line id|order item id|orderitemid|sub order id)$/i.test(h.trim())
+  )
+  const nameColumn = headers.findIndex((h) =>
+    /^(product name|productname|item name)$/i.test(h.trim())
+  )
 
   const orders: NewImportedOrder[] = rows.map((row, position) => {
     const cell = (index: number): string => (index === -1 ? '' : (row[index] ?? ''))
@@ -139,9 +160,23 @@ export async function importSpreadsheet(
     const quantity = parseQuantity(quantityText)
     if (quantity === null) invalidQuantityRows += 1
 
+    const orderLineId = cell(lineColumn)
+    const identity = JSON.stringify([orderId, rawSku, rawVariation, rawColour, rawSize])
+    const occurrence = (occurrences.get(identity) ?? 0) + 1
+    occurrences.set(identity, occurrence)
     return {
       importFileId: 0, // replaced once the import_files row exists
-      rowNumber: position + 1,
+      sellerAccountId: options.sellerAccountId ?? null,
+      rawQuantity: quantityText,
+      orderLineId,
+      productName: cell(nameColumn),
+      validationNote:
+        quantity === null
+          ? `Invalid quantity: "${quantityText}". Enter a positive whole number.`
+          : !orderId
+            ? 'Missing order identity. Compare with previous exports before approving production.'
+            : '',
+      rowNumber: contents.rowNumbers[position] ?? position + 1,
       orderId,
       platform,
       rawSku,
@@ -149,7 +184,20 @@ export async function importSpreadsheet(
       rawColour,
       rawSize,
       quantity: quantity ?? 0,
-      duplicateHash: buildDuplicateHash({ orderId, rawSku, rawVariation, quantity: quantity ?? 0 })
+      duplicateHash: buildDuplicateHash({
+        orderId,
+        rawSku,
+        rawVariation,
+        quantity: quantity ?? 0,
+        platform,
+        sellerAccountId: options.sellerAccountId,
+        orderLineId,
+        rawColour,
+        rawSize,
+        occurrence,
+        fileHash: contents.fileHash,
+        sheetName: contents.sheetName
+      })
     }
   })
 
@@ -157,18 +205,47 @@ export async function importSpreadsheet(
   // is the "Ignore Duplicates" default: grouping (Phase 4) simply excludes flagged rows
   // from its sums. "Import Anyway" clears the flag later via
   // importedOrders.clearDuplicateForFile, it never re-runs this detection.
-  const existingHashes = db.importedOrders.findExistingHashes(
-    orders.map((order) => order.duplicateHash ?? '')
-  )
-  const duplicateRows = orders.filter(
-    (order) => order.duplicateHash !== '' && existingHashes.has(order.duplicateHash ?? '')
-  ).length
-  const flaggedOrders = orders.map((order) => ({
-    ...order,
-    isDuplicate: order.duplicateHash !== '' && existingHashes.has(order.duplicateHash ?? '')
-  }))
+  const seenLineIds = new Set<string>()
+  const flaggedOrders = orders.map((order) => {
+    let decision = duplicateDecision(db, order, contents.fileHash, contents.sheetName)
+    if (order.orderLineId) {
+      const key = JSON.stringify([order.orderId, order.orderLineId])
+      if (seenLineIds.has(key)) decision = 'review'
+      seenLineIds.add(key)
+    }
+    return {
+      ...order,
+      isDuplicate: decision === 'duplicate',
+      validationNote:
+        decision === 'review'
+          ? 'Possible repeated or changed order line. Compare source history before approving or removing this production row.'
+          : order.validationNote
+    }
+  })
+  const duplicateRows = flaggedOrders.filter((o) => o.isDuplicate).length
+
+  if (options.previewOnly)
+    return {
+      ...base(contents, platform, platformGuess.confidence),
+      status: 'needs_mapping',
+      rowCount: orders.length,
+      invalidQuantityRows,
+      duplicateRows,
+      mapping,
+      usedSavedMapping,
+      detectionStatus,
+      preview: {
+        headers,
+        sampleRows: rows.slice(0, 10),
+        suggested: mapping,
+        reason: `Preview only. ${orders.length} rows, ${invalidQuantityRows} invalid quantities, ${duplicateRows} duplicates. Confirm the worksheet, marketplace and columns before importing.`
+      },
+      message: 'Review the preview and confirm import. Nothing has been saved.'
+    }
+  if (orders.length === 0) return failure(filePath, 'There are no order rows below the headings.')
 
   const { importFileId, mappingRemembered } = db.transaction(() => {
+    if (usedSavedMapping && columnMappingId) db.columnMappings.recordUse(columnMappingId)
     let savedMappingId = columnMappingId
 
     if (options.mapping && options.remember) {
@@ -193,6 +270,7 @@ export async function importSpreadsheet(
     }
 
     const importFile = db.importFiles.create({
+      sellerAccountId: options.sellerAccountId ?? null,
       fileName: contents.fileName,
       filePath: contents.filePath,
       fileHash: contents.fileHash,
@@ -299,18 +377,7 @@ function failure(filePath: string, message: string): UploadResult {
  * caller can count it — the row is still stored, with quantity 0, for Phase 5 to flag.
  */
 export function parseQuantity(text: string): number | null {
-  const trimmed = text.trim()
-  if (trimmed === '') return null
-
-  // Tolerates "2 pcs", "1,000" and "3.0"; rejects anything with no digits.
-  const cleaned = trimmed.replace(/[^\d.-]/g, '')
-  if (cleaned === '' || !/\d/.test(cleaned)) return null
-
-  const value = Number(cleaned)
-  if (!Number.isFinite(value)) return null
-
-  const whole = Math.trunc(value)
-  return whole < 0 ? null : whole
+  return quantityFromText(text)
 }
 
 /** order ID + SKU + variation + quantity, per the spec's duplicate rule. */
@@ -319,13 +386,32 @@ export function buildDuplicateHash(parts: {
   rawSku: string
   rawVariation: string
   quantity: number
+  platform?: string
+  sellerAccountId?: number
+  orderLineId?: string
+  rawColour?: string
+  rawSize?: string
+  occurrence?: number
+  fileHash?: string
+  sheetName?: string
 }): string {
-  const key = [
-    parts.orderId.trim().toLowerCase(),
-    parts.rawSku.trim().toLowerCase(),
-    parts.rawVariation.trim().toLowerCase(),
-    String(parts.quantity)
-  ].join('|')
+  const key = JSON.stringify([
+    'v2',
+    parts.platform ?? 'unknown',
+    parts.sellerAccountId ?? null,
+    parts.orderId.trim(),
+    parts.orderLineId?.trim() || '',
+    ...(parts.orderLineId
+      ? []
+      : [
+          parts.rawSku.trim(),
+          parts.rawVariation.trim(),
+          parts.rawColour ?? '',
+          parts.rawSize ?? '',
+          parts.occurrence ?? 1
+        ]),
+    ...(parts.orderId ? [] : [parts.fileHash ?? '', parts.sheetName ?? ''])
+  ])
 
   return createHash('sha256').update(key).digest('hex')
 }

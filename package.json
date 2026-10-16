@@ -1,10 +1,10 @@
 {
-  "name": "stitchflow",
-  "productName": "StitchFlow",
-  "version": "0.1.0",
+  "name": "slipflow",
+  "productName": "SlipFlow",
+  "version": "1.0.0",
   "private": true,
-  "description": "Offline production sheet builder for garment factories",
-  "author": "Factory Software",
+  "description": "Offline Windows production slips for marketplace order exports",
+  "author": "Muhammad Tayyab",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -16,9 +16,16 @@
     "review:verify": "electron-vite build && electron out/main/review-verify.js",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit --composite false",
-    "typecheck:web": "tsc -p tsconfig.web.json --noEmit --composite false"
+    "typecheck:web": "tsc -p tsconfig.web.json --noEmit --composite false",
+    "lint": "biome lint src scripts tests",
+    "test": "npm run build && node scripts/verify.cjs",
+    "test:e2e": "playwright test",
+    "release:verify": "electron-vite build && electron out/main/release-verify.js",
+    "pack:win": "npm run build && electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@playwright/test": "1.64.1",
     "@radix-ui/react-slot": "^1.3.3",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.2.0",
@@ -28,6 +35,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron": "^43.3.0",
+    "electron-builder": "26.15.3",
     "electron-vite": "^5.0.0",
     "lucide-react": "^1.31.0",
     "react": "^19.2.8",
@@ -37,5 +45,59 @@
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "license": "UNLICENSED",
+  "build": {
+    "appId": "com.factorysoftware.stitchflow",
+    "productName": "SlipFlow",
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*",
+      "!out/main/*-verify.js",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.ico",
+      "artifactName": "SlipFlow-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": false
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
+    "extraFiles": [
+      {
+        "from": "THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE-SlipFlow.txt"
+      }
+    ]
   }
 }

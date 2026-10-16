@@ -1,0 +1,7 @@
+flowchart LR
+  Renderer[React renderer] --> Preload[Sandboxed preload]
+  Preload --> Main[Validated Electron IPC]
+  Main --> Parser[SheetJS]
+  Main --> Database[(SQLite)]
+  Main --> Print[Backend A4 document]
+  Main --> Backup[Verified snapshot]

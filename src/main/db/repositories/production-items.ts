@@ -5,14 +5,7 @@ import type {
   ProductionItem,
   ProductionItemUpdate
 } from '@shared/types'
-import {
-  nowIso,
-  readBoolean,
-  readInteger,
-  readText,
-  toDbBoolean,
-  type DbRow
-} from '../rows'
+import { nowIso, readBoolean, readInteger, readText, toDbBoolean, type DbRow } from '../rows'
 import { createUpdate, placeholders } from '../update-builder'
 
 function toProductionItem(row: DbRow): ProductionItem {
@@ -102,7 +95,7 @@ export function createProductionItemsRepository(db: DatabaseSync): ProductionIte
       COUNT(*) AS items,
       COALESCE(SUM(quantity), 0) AS units,
       COALESCE(SUM(CASE WHEN is_resolved = 0 OR issue_type <> '' THEN 1 ELSE 0 END), 0) AS unresolved
-    FROM production_items
+    FROM production_items WHERE batch_id IN (SELECT id FROM batches WHERE status IN ('draft','ready'))
   `)
   const deleteById = db.prepare('DELETE FROM production_items WHERE id = ?')
   const deleteByBatchId = db.prepare('DELETE FROM production_items WHERE batch_id = ?')

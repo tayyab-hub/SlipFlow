@@ -1,0 +1,10 @@
+flowchart LR
+  Seller[Select seller] --> Preview[Preview worksheet and columns]
+  Preview --> Import[Import source rows]
+  Import --> Duplicates[Identify reliable duplicates]
+  Duplicates --> Select[Select pending order lines]
+  Select --> Group[Apply mappings and group]
+  Group --> Review[Resolve issues and reconcile]
+  Review --> Ready[Approve as ready]
+  Ready --> Output[A4 PDF or native print]
+  Output --> History[Retain history and backup]

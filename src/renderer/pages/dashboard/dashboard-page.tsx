@@ -22,11 +22,14 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
       <ActionTiles onSelect={handleAction} />
 
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold tracking-tight">Today</h2>
+        <h2 className="text-sm font-semibold tracking-tight">Production overview</h2>
         <SummaryCards summary={summary} />
       </div>
 
-      <RecentBatches />
+      <RecentBatches onNavigate={onNavigate} />
+      <p className="text-sm text-muted-foreground">
+        {summary.pendingOrders} pending order lines · {summary.activeBatches} active batches
+      </p>
     </div>
   )
 }

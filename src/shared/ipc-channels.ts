@@ -3,6 +3,19 @@
  * main, preload and renderer all import from here so a rename can't half-apply.
  */
 export const IpcChannels = {
+  sellersList: 'sellers:list',
+  sellersSave: 'sellers:save',
+  settingsGet: 'settings:get',
+  settingsSave: 'settings:save',
+  batchUpdate: 'batches:update-details',
+  batchEvidence: 'batches:evidence',
+  itemSources: 'items:sources',
+  backupsList: 'backups:list',
+  backupCreate: 'backups:create',
+  backupRestore: 'backups:restore',
+  uploadDroppedFile: 'upload:dropped-file',
+  printNative: 'print:native',
+  printPreview: 'print:preview',
   appInfo: 'app:info',
   appDashboardSummary: 'app:dashboard-summary',
 
@@ -10,6 +23,8 @@ export const IpcChannels = {
   uploadImportFiles: 'upload:import-files',
   uploadApplyMapping: 'upload:apply-mapping',
   uploadListPending: 'upload:list-pending',
+  uploadPendingRows: 'upload:pending-rows',
+  backupStatus: 'backups:status',
   uploadRemoveFile: 'upload:remove-file',
   uploadUnmarkDuplicates: 'upload:unmark-duplicates',
 

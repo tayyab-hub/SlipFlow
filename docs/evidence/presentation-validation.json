@@ -1,0 +1,14 @@
+{
+  "slides": 12,
+  "packageIntegrity": "pass",
+  "fontPolicy": "Arial",
+  "layoutFindings": 0,
+  "editablePptx": true,
+  "visualInspection": "all 12 slide renders",
+  "pdfPages": 12,
+  "pdfMethod": "validated slide renders; native PDF exporter missing standard font module",
+  "nativePowerPoint": "not verified",
+  "animations": "none",
+  "pptxSha256": "79ea7b239655380257c8f4001064cdd7d66d1683707c6c19252cf0354ae5a6af",
+  "pdfSha256": "6b547db9c1ff9a826190d41f0e0f3e6288c84dc750c2015882347a22e03840ac"
+}

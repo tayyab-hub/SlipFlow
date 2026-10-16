@@ -1,394 +1,411 @@
-import { useCallback, useEffect, useState } from 'react'
-import {
-  CircleAlert,
-  CircleCheck,
-  CircleHelp,
-  ClipboardList,
-  FileSpreadsheet,
-  Layers,
-  Tags,
-  Trash2
-} from 'lucide-react'
-import type { ApplyMappingRequest, BatchGroupingResult, ImportFile, UploadResult } from '@shared/types'
-import { Badge } from '@/components/ui/badge'
+import { useEffect, useState } from 'react'
+import type { ApplyMappingRequest, ImportFile, ImportedOrder, UploadResult } from '@shared/types'
+import type { SellerAccount } from '@shared/delivery'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropZone } from '@/components/upload/drop-zone'
-import { PlatformBadge } from '@/components/upload/platform-badge'
-import type { Navigate } from '@/App'
 import { ManualMapping } from './manual-mapping'
+import type { Navigate } from '@/App'
 
-/** One line in the file list, from either this session's uploads or an earlier one. */
-interface FileEntry {
-  key: string
-  fileName: string
-  platform: string
-  platformConfidence?: number
-  rowCount: number
-  status: UploadResult['status']
-  detail: string
-  importFileId: number | null
-  /** Kept so the mapping screen can be reopened, and the duplicate banner acted on. */
-  result: UploadResult | null
-  duplicateRows: number
-}
-
-function entryFromResult(result: UploadResult, index: number): FileEntry {
-  return {
-    key: `${result.filePath}:${index}:${result.status}`,
-    fileName: result.fileName,
-    platform: result.platform,
-    platformConfidence: result.platformConfidence,
-    rowCount: result.rowCount,
-    status: result.status,
-    detail: result.message,
-    importFileId: result.importFileId,
-    result,
-    duplicateRows: result.duplicateRows
-  }
-}
-
-function entryFromImportFile(file: ImportFile): FileEntry {
-  const how =
-    file.detectionStatus === 'auto'
-      ? 'Columns detected automatically.'
-      : file.detectionStatus === 'manual'
-        ? 'Columns set by hand or from a saved layout.'
-        : 'Imported earlier.'
-
-  return {
-    key: `import-file:${file.id}`,
-    fileName: file.fileName,
-    platform: file.platform,
-    rowCount: file.rowCount,
-    status: 'imported',
-    detail: how,
-    importFileId: file.id,
-    result: null,
-    duplicateRows: 0
-  }
-}
-
-interface UploadPageProps {
-  onNavigate: Navigate
-}
-
-export function UploadPage({ onNavigate }: UploadPageProps) {
-  const [entries, setEntries] = useState<FileEntry[]>([])
-  const [mappingTarget, setMappingTarget] = useState<UploadResult | null>(null)
+export function UploadPage({ onNavigate }: { onNavigate: Navigate }) {
+  const [sellers, setSellers] = useState<SellerAccount[]>([])
+  const [sellerId, setSellerId] = useState(0)
+  const [files, setFiles] = useState<ImportFile[]>([])
+  const [selected, setSelected] = useState<number[]>([])
+  const [previews, setPreviews] = useState<UploadResult[]>([])
   const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [groupingResult, setGroupingResult] = useState<BatchGroupingResult | null>(null)
-
-  const loadPending = useCallback(async () => {
-    const files = await window.stitchflow.listPendingImports()
-    setEntries(files.map(entryFromImportFile).reverse())
-  }, [])
-
+  const [notice, setNotice] = useState('')
+  const [name, setName] = useState('')
+  const [sellerFilter, setSellerFilter] = useState(0)
+  const [rows, setRows] = useState<Record<number, ImportedOrder[]>>({})
+  const [rowSelection, setRowSelection] = useState<Record<number, number[]>>({})
+  const [expanded, setExpanded] = useState(0),
+    [search, setSearch] = useState('')
+  async function refresh() {
+    const [f, s] = await Promise.all([
+      window.stitchflow.listPendingImports(),
+      window.stitchflow.listSellers()
+    ])
+    setFiles(f)
+    setSellers(s)
+    setSelected(f.map((x) => x.id))
+    setRows({})
+    setRowSelection({})
+    setExpanded(0)
+  }
+  async function inspect(id: number) {
+    setBusy(true)
+    try {
+      const orders = await window.stitchflow.pendingOrderRows(id)
+      setRows((r) => ({ ...r, [id]: orders }))
+      setRowSelection((r) => ({ ...r, [id]: r[id] ?? orders.map((o) => o.id) }))
+      setExpanded(id)
+      setSearch('')
+    } catch (e) {
+      setNotice(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
   useEffect(() => {
-    void loadPending().catch((error: unknown) => {
-      console.error('Could not list previous imports', error)
-    })
-  }, [loadPending])
-
-  function absorb(results: readonly UploadResult[]): void {
-    setEntries((current) => [...results.map(entryFromResult), ...current])
-
-    // If anything needs mapping, take the operator straight to the first one.
-    const needsMapping = results.find((result) => result.status === 'needs_mapping')
-    if (needsMapping) setMappingTarget(needsMapping)
-  }
-
-  async function importFiles(filePaths: string[]): Promise<void> {
-    setBusy(true)
-    setNotice(null)
-    try {
-      absorb(await window.stitchflow.importOrderFiles(filePaths))
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'That upload could not be completed.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function applyMapping(request: ApplyMappingRequest): Promise<void> {
-    setBusy(true)
-    try {
-      const result = await window.stitchflow.applyColumnMapping(request)
-
-      if (result.status === 'imported') {
-        setMappingTarget(null)
-        // Replace the needs-mapping line for this file rather than stacking a second one.
-        setEntries((current) => [
-          entryFromResult(result, 0),
-          ...current.filter((entry) => entry.result?.filePath !== request.filePath)
-        ])
-        setNotice(
-          result.mappingRemembered
-            ? `Imported and saved the layout — files like "${result.fileName}" will import automatically next time.`
-            : `Imported "${result.fileName}".`
-        )
-      } else {
-        setMappingTarget(result)
-        setNotice(result.message)
-      }
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'That mapping could not be applied.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function remove(entry: FileEntry): Promise<void> {
-    if (entry.importFileId === null) {
-      setEntries((current) => current.filter((item) => item.key !== entry.key))
+    void refresh().catch((e) => setNotice(String(e)))
+  }, [])
+  async function upload(paths: string[]) {
+    if (!sellerId) {
+      setNotice('Choose a seller account before selecting files.')
       return
     }
-
-    await window.stitchflow.removeImport(entry.importFileId)
-    setEntries((current) => current.filter((item) => item.key !== entry.key))
-  }
-
-  async function importAnyway(entry: FileEntry): Promise<void> {
-    if (entry.importFileId === null) return
-
     setBusy(true)
+    setNotice('')
     try {
-      await window.stitchflow.unmarkDuplicates(entry.importFileId)
-      setEntries((current) =>
-        current.map((item) => (item.key === entry.key ? { ...item, duplicateRows: 0 } : item))
-      )
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'That could not be updated.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function groupIntoBatch(): Promise<void> {
-    setBusy(true)
-    setNotice(null)
-    setGroupingResult(null)
-    try {
-      const result = await window.stitchflow.createBatchFromPending()
-      setGroupingResult(result)
-      setEntries([])
-      await loadPending()
-    } catch (error) {
+      const results = await window.stitchflow.importOrderFiles(paths, sellerId)
+      setPreviews(results.filter((r) => r.status === 'needs_mapping'))
       setNotice(
-        error instanceof Error ? error.message : 'These files could not be grouped into a batch.'
+        results
+          .filter((r) => r.status === 'failed')
+          .map((r) => `${r.fileName}: ${r.message}`)
+          .join('\n')
       )
+    } catch (e) {
+      setNotice(String(e))
     } finally {
       setBusy(false)
     }
   }
-
-  if (mappingTarget) {
-    return (
-      <ManualMapping
-        result={mappingTarget}
-        busy={busy}
-        onCancel={() => setMappingTarget(null)}
-        onSubmit={(request) => void applyMapping(request)}
-      />
-    )
+  async function apply(request: ApplyMappingRequest) {
+    setBusy(true)
+    try {
+      const result = await window.stitchflow.applyColumnMapping({
+        ...request,
+        sellerAccountId: sellerId,
+        sheetName: previews[0]?.sheetName
+      })
+      if (result.status === 'imported') {
+        setPreviews((p) => p.slice(1))
+        setNotice(
+          `${result.fileName}: ${result.rowCount} rows imported, ${result.invalidQuantityRows} invalid quantities, ${result.duplicateRows} duplicates excluded.`
+        )
+        await refresh()
+      } else setNotice(result.message)
+    } catch (e) {
+      setNotice(String(e))
+    } finally {
+      setBusy(false)
+    }
   }
-
-  const importedCount = entries.filter((entry) => entry.status === 'imported').length
-  const totalRows = entries
-    .filter((entry) => entry.status === 'imported')
-    .reduce((sum, entry) => sum + entry.rowCount, 0)
-
+  async function worksheet(sheetName: string) {
+    if (!previews[0]) return
+    setBusy(true)
+    try {
+      const [r] = await window.stitchflow.importOrderFiles(
+        [previews[0].filePath],
+        sellerId,
+        sheetName
+      )
+      if (r?.status === 'needs_mapping') setPreviews((p) => [r, ...p.slice(1)])
+      else setNotice(r?.message ?? 'Could not preview worksheet.')
+    } catch (e) {
+      setNotice(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function group() {
+    setBusy(true)
+    try {
+      const custom = Object.keys(rowSelection).length > 0
+      const orderIds = custom
+        ? (
+            await Promise.all(
+              selected.map(
+                async (id) =>
+                  rowSelection[id] ??
+                  (await window.stitchflow.pendingOrderRows(id)).map((o) => o.id)
+              )
+            )
+          ).flat()
+        : undefined
+      const r = await window.stitchflow.createBatchFromPending(selected, name, orderIds)
+      onNavigate('review', r.batch.id)
+    } catch (e) {
+      setNotice(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function remove(id: number) {
+    if (!window.confirm('Remove this pending import and its source rows?')) return
+    setBusy(true)
+    try {
+      await window.stitchflow.removeImport(id)
+      await refresh()
+    } catch (e) {
+      setNotice(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (previews[0])
+    return (
+      <div className="space-y-4">
+        <p className="text-sm">
+          Seller: <strong>{sellers.find((s) => s.id === sellerId)?.name}</strong> ·{' '}
+          {previews.length} file previews remaining
+        </p>
+        {notice && (
+          <p role="alert" className="rounded border p-3 text-sm">
+            {notice}
+          </p>
+        )}
+        <label className="text-sm">
+          Worksheet{' '}
+          <select
+            className="ml-2 rounded border p-2"
+            value={previews[0].sheetName}
+            onChange={(e) => void worksheet(e.target.value)}
+            disabled={busy}
+          >
+            {previews[0].sheetNames.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </label>
+        <ManualMapping
+          key={`${previews[0].filePath}:${previews[0].sheetName}`}
+          result={previews[0]}
+          busy={busy}
+          onCancel={() => setPreviews((p) => p.slice(1))}
+          onSubmit={(r) => void apply(r)}
+        />
+      </div>
+    )
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold tracking-tight">Upload Orders</h2>
-          <p className="text-sm text-muted-foreground">
-            Add the order files you exported from each marketplace. StitchFlow works out which
-            columns hold the SKU, colour, size and quantity.
-          </p>
-        </div>
-        <Button variant="secondary" onClick={() => onNavigate('sku-mapping')} disabled={busy}>
-          <Tags />
-          SKU Mappings
-        </Button>
+      <div>
+        <h2 className="text-xl font-semibold">Import orders</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Choose the seller, preview each worksheet, then select files or individual order lines for
+          a production batch.
+        </p>
       </div>
-
-      {groupingResult && (
-        <Card className="flex items-start gap-3 border-success/30 bg-success-muted p-4">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-success/15 text-success">
-            <Layers className="size-4.5" />
-          </div>
-          <div className="min-w-0 flex-1 space-y-0.5 text-sm">
-            <p className="font-medium text-success">
-              Batch {groupingResult.batch.batchNumber} created
-            </p>
-            <p className="text-muted-foreground">
-              {groupingResult.itemsCreated} production line{groupingResult.itemsCreated === 1 ? '' : 's'} ·{' '}
-              {groupingResult.unitsTotal} units
-              {groupingResult.unresolvedCount > 0 &&
-                ` · ${groupingResult.unresolvedCount} need${groupingResult.unresolvedCount === 1 ? 's' : ''} review`}
-              {groupingResult.autoSplitCount > 0 &&
-                ` · ${groupingResult.autoSplitCount} auto-detected from variation text`}
-              {groupingResult.duplicateRowsExcluded > 0 &&
-                ` · ${groupingResult.duplicateRowsExcluded} duplicate row${groupingResult.duplicateRowsExcluded === 1 ? '' : 's'} excluded`}
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => onNavigate('review', groupingResult.batch.id)}
+      <Card className="flex flex-wrap items-center gap-4 p-4">
+        <label className="text-sm font-medium">
+          Seller account{' '}
+          <select
+            aria-label="Seller account"
+            className="ml-2 min-w-56 rounded border p-2"
+            value={sellerId}
+            disabled={busy}
+            onChange={(e) => setSellerId(Number(e.target.value))}
           >
-            <ClipboardList />
-            Review this batch
-          </Button>
-        </Card>
-      )}
-
+            <option value={0}>Select seller</option>
+            {sellers
+              .filter((s) => s.active)
+              .map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.platform} / {s.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <Button variant="secondary" onClick={() => onNavigate('settings')}>
+          Manage sellers
+        </Button>
+        <Button variant="secondary" onClick={() => onNavigate('sku-mapping')}>
+          SKU mappings
+        </Button>
+      </Card>
       <DropZone
-        busy={busy}
-        onFiles={(paths) => void importFiles(paths)}
-        onRejected={(names) =>
-          setNotice(
-            `Skipped ${names.length} file${names.length === 1 ? '' : 's'} StitchFlow can't read: ${names.join(', ')}`
-          )
-        }
+        busy={busy || !sellerId}
+        onFiles={(paths) => void upload(paths)}
+        onRejected={(names) => setNotice(`Unsupported files: ${names.join(', ')}`)}
       />
-
       {notice && (
-        <p
-          role="status"
-          className="rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-muted-foreground"
-        >
+        <p role="status" className="whitespace-pre-line rounded border bg-muted p-4 text-sm">
           {notice}
         </p>
       )}
-
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-baseline gap-4">
-            <h3 className="text-sm font-semibold tracking-tight">Files added</h3>
-            {importedCount > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {importedCount} file{importedCount === 1 ? '' : 's'} · {totalRows} order lines
-              </p>
-            )}
-          </div>
-          {importedCount > 0 && (
-            <Button size="sm" onClick={() => void groupIntoBatch()} disabled={busy}>
-              <Layers />
-              Group into production batch
-            </Button>
-          )}
-        </div>
-
-        {entries.length === 0 ? (
-          <Card className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-            <div className="flex size-11 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
-              <FileSpreadsheet className="size-5" />
-            </div>
-            <p className="text-sm font-medium">No files yet</p>
-            <p className="max-w-sm text-sm text-muted-foreground">
-              Drop a marketplace export above, or use Choose files.
-            </p>
-          </Card>
-        ) : (
-          <ul className="space-y-2">
-            {entries.map((entry) => (
-              <li key={entry.key}>
-                <Card className="divide-y divide-border overflow-hidden p-0">
-                  <div className="flex items-center gap-4 px-4 py-3">
-                    <StatusIcon status={entry.status} />
-
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-medium">{entry.fileName}</span>
-                        <PlatformBadge
-                          platform={entry.platform}
-                          confidence={entry.platformConfidence}
-                        />
-                        {entry.status === 'imported' && (
-                          <Badge tone="success">{entry.rowCount} rows</Badge>
-                        )}
-                        {entry.status === 'needs_mapping' && (
-                          <Badge tone="warning">needs mapping</Badge>
-                        )}
-                        {entry.status === 'failed' && <Badge tone="danger">unreadable</Badge>}
-                      </div>
-                      <p className="truncate text-xs text-muted-foreground" title={entry.detail}>
-                        {entry.detail}
-                      </p>
-                    </div>
-
-                    {entry.status === 'needs_mapping' && entry.result && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setMappingTarget(entry.result)}
-                        disabled={busy}
-                      >
-                        Map columns
-                      </Button>
-                    )}
-
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      title="Remove this file"
-                      onClick={() => void remove(entry)}
-                      disabled={busy}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-
-                  {entry.duplicateRows > 0 && (
-                    <div className="flex flex-wrap items-center justify-between gap-2 bg-warning-muted px-4 py-2 text-xs">
-                      <span className="text-warning">
-                        {entry.duplicateRows} of {entry.rowCount} rows match orders already
-                        imported — ignored by default.
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => void importAnyway(entry)}
-                        disabled={busy}
-                      >
-                        Import anyway
-                      </Button>
-                    </div>
-                  )}
-                </Card>
-              </li>
+      <div className="flex flex-wrap items-center gap-3">
+        <h3 className="mr-auto font-semibold">Pending imports</h3>
+        <label className="text-sm">
+          Filter seller{' '}
+          <select
+            className="rounded border p-2"
+            value={sellerFilter}
+            onChange={(e) => setSellerFilter(Number(e.target.value))}
+          >
+            <option value={0}>All sellers</option>
+            {sellers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
             ))}
-          </ul>
+          </select>
+        </label>
+      </div>
+      <Card className="overflow-hidden">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-muted">
+            <tr>
+              <th className="p-3">Batch</th>
+              <th>File / worksheet</th>
+              <th>Seller</th>
+              <th>Rows</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {files
+              .filter((f) => !sellerFilter || f.sellerAccountId === sellerFilter)
+              .map((f) => (
+                <tr key={f.id} className="border-t">
+                  <td className="p-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${f.fileName}`}
+                      checked={selected.includes(f.id)}
+                      onChange={(e) =>
+                        setSelected((ids) =>
+                          e.target.checked ? [...ids, f.id] : ids.filter((id) => id !== f.id)
+                        )
+                      }
+                    />
+                  </td>
+                  <td className="py-3">
+                    {f.fileName}
+                    <small className="block text-muted-foreground">{f.sheetName}</small>
+                  </td>
+                  <td>
+                    {f.platform} /{' '}
+                    {sellers.find((s) => s.id === f.sellerAccountId)?.name ?? 'Legacy'}
+                  </td>
+                  <td>{f.rowCount}</td>
+                  <td>
+                    <Button variant="ghost" disabled={busy} onClick={() => void inspect(f.id)}>
+                      Choose rows
+                    </Button>
+                    <Button variant="ghost" disabled={busy} onClick={() => void remove(f.id)}>
+                      Remove
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+        {files.length === 0 && (
+          <p className="p-8 text-center text-muted-foreground">
+            No pending files. Select a seller and add an order export.
+          </p>
         )}
-      </section>
-    </div>
-  )
-}
-
-function StatusIcon({ status }: { status: UploadResult['status'] }) {
-  if (status === 'imported') {
-    return (
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-success-muted text-success">
-        <CircleCheck className="size-4.5" />
+      </Card>
+      {expanded > 0 && rows[expanded] && (
+        <Card className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="mr-auto font-semibold">
+              Order lines: {files.find((f) => f.id === expanded)?.fileName}
+            </h3>
+            <Button variant="ghost" onClick={() => setExpanded(0)}>
+              Close rows
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {rowSelection[expanded]?.length} of {rows[expanded].length} pending rows selected.
+            Unselected rows remain pending. Exact duplicates never add production units.
+          </p>
+          <div className="flex gap-3">
+            <input
+              aria-label="Search pending orders"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search order, SKU or variation"
+              className="flex-1 rounded border p-2 text-sm"
+            />
+            <Button
+              variant="secondary"
+              onClick={() =>
+                setRowSelection((r) => ({ ...r, [expanded]: rows[expanded]!.map((o) => o.id) }))
+              }
+            >
+              Select all rows
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setRowSelection((r) => ({ ...r, [expanded]: [] }))}
+            >
+              Clear rows
+            </Button>
+          </div>
+          <div className="max-h-80 overflow-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr>
+                  <th className="p-2">Include</th>
+                  <th>Source row / order</th>
+                  <th>SKU / variant</th>
+                  <th>Quantity</th>
+                  <th>Validation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows[expanded]
+                  .filter((o) =>
+                    `${o.orderId} ${o.rawSku} ${o.rawVariation}`
+                      .toLowerCase()
+                      .includes(search.toLowerCase())
+                  )
+                  .map((o) => (
+                    <tr key={o.id} className="border-t">
+                      <td className="p-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Include source row ${o.rowNumber}`}
+                          checked={rowSelection[expanded]?.includes(o.id) ?? false}
+                          onChange={(e) =>
+                            setRowSelection((r) => ({
+                              ...r,
+                              [expanded]: e.target.checked
+                                ? [...(r[expanded] ?? []), o.id]
+                                : (r[expanded] ?? []).filter((id) => id !== o.id)
+                            }))
+                          }
+                        />
+                      </td>
+                      <td>
+                        {o.rowNumber} / {o.orderId || 'Missing ID'}
+                      </td>
+                      <td>
+                        {o.rawSku || 'Missing SKU'}
+                        <small className="block">
+                          {o.rawVariation || `${o.rawColour} ${o.rawSize}`}
+                        </small>
+                      </td>
+                      <td>{o.rawQuantity}</td>
+                      <td>
+                        {o.isDuplicate
+                          ? 'Duplicate excluded'
+                          : o.validationNote ||
+                            (!o.quantity ? 'Invalid quantity' : 'Review mapping in batch')}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+      <div className="flex flex-wrap gap-3">
+        <input
+          aria-label="Batch name"
+          placeholder="Batch name (optional)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={500}
+          className="min-w-72 rounded border p-2 text-sm"
+        />
+        <Button disabled={busy || !selected.length} onClick={() => void group()}>
+          Create batch from {selected.length} files
+        </Button>
       </div>
-    )
-  }
-
-  if (status === 'needs_mapping') {
-    return (
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-warning-muted text-warning">
-        <CircleHelp className="size-4.5" />
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-destructive-muted text-destructive">
-      <CircleAlert className="size-4.5" />
     </div>
   )
 }

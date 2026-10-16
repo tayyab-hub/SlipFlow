@@ -9,10 +9,19 @@ every session.
 
 ## Current state
 
-**Phase:** 6 — A4 print preview + printing
-**Status:** ✅ Complete, verified against its Definition of Done
-**Next phase:** 7 — batches history, settings, backup
-**Last updated:** 2026-08-25
+**Release:** SlipFlow 1.0.0
+**Status:** Core implementation and local quality gates complete; GitHub publication and CI verification in progress.
+**Last updated:** 2026-10-16
+
+The release preserves the initial work in checkpoint `410c4ae`, retains migration 0001 and all fixed sample files, and preserves the legacy StitchFlow data path. It adds seller identity, conservative duplicate handling, strict quantities, source provenance, individual source-line selection, review/reconciliation, complete A4 output, history, settings and verified backup/restore. Legacy unfinished rows require review.
+
+Local results: lint/type/build PASS; original suites 45 PASS; release suite 51 PASS; Playwright 2 PASS. Synthetic sample reconciliation remains 28 original lines plus 12 excluded duplicate rows, 61 units. A 120-line PDF has 7 verified A4 pages. Latest recorded 10,000-row import: 2,201 ms on this Windows host.
+
+The NSIS installer was installed, started, updated and uninstalled in isolated test directories. A persistence marker survived update and data remained after uninstall. Desktop/Start shortcuts were present. Packaged security posture is sandbox/context isolation enabled and Node integration disabled. Installer is unsigned.
+
+Documentation, eight actual application screenshots, a 12-slide editable PowerPoint, PDF and presentation/portfolio scripts are under `docs/`. See the release documentation for current behavior. The earlier phase notes below are historical and may describe superseded behavior, especially partial printing and automatic printed status.
+
+### Historical phase 6 notes
 
 ### What works right now (observed, not assumed)
 
@@ -905,3 +914,19 @@ Phase 7" above: `RecentBatches` is still Phase 1's inert placeholder and is the 
 place for the real history list, since `batches.list()` and the `Navigate` batch-id
 plumbing both already exist to support it.
 **Commit:** tag `phase-6-print`
+
+## SlipFlow delivery session - 2026-10-16 (active)
+
+The user's comprehensive delivery request supersedes the earlier one-phase-per-session restriction and authorizes dependencies, commits and GitHub publication. Checkpoint `410c4ae` preserves every initial local source change, including size sorting. Working branch: `codex/slipflow-release`.
+
+Implemented so far: strict integer quantities; seller accounts; scoped conservative duplicate detection; source provenance; unknown-SKU review; safe identical-item merges; batch approval and reconciliation; history/archive; persisted settings; WAL-safe verified backups and restoration with recovery snapshots; preview before import and explicit worksheet selection; selected-file batching; backend-owned A4 printing/PDF without optimistic printed status; IPC sender allowlist; hardened navigation/permissions; additive migration 0002 with legacy path preservation.
+
+Verification evidence: baseline 45 checks passed. Current original suites 45/45 pass, release suite 48/48 passes, and the full Playwright Electron operator workflow passes. The grouping suite's two unsafe auto-approval assertions were replaced with the explicitly requested conservative policy; its quantity assertions remain unchanged. A 10,000-row synthetic import took 2,323 ms in the recorded run. This is a local benchmark, not factory time savings.
+
+Real UI workflow: three marketplace fixtures, repeated TikTok file excluded, 3 unknown SKUs explicitly corrected, 61 units reconciled, PDF exported without changing ready status, backup restored, application reopened, persisted records reprinted. Screenshots under docs/screenshots are real synthetic-data captures. Multipage PDF contains all 120 items, correct total, repeated headers, and A4 page dimensions. Visual review found wrapped three-digit row numbers; fixed and awaiting final rerender.
+
+Security: Electron updated within major 43 to 43.8.0, source-map-js and undici patched. No high findings remain in the npm audit. Eight moderate findings share the build-only sprintf-js dependency chain, with no patched upstream sprintf-js release. Runtime has no external node_modules dependencies; document this residual risk.
+
+Windows: initial NSIS installer built at release/SlipFlow-Setup-1.0.0.exe. Rebuild after final checks before installation QA. GitHub account verified as tayyab-hub in connector and Git Credential Manager. Target repository currently returns 404. No remote publication yet.
+
+Remaining: final QA/security/privacy audit, installer install/startup/uninstall checks, documentation, presentation, final Git commits/push, remote CI and gated release. Track work in DELIVERY-CHECKLIST.md. Never label unverified external checks successful.

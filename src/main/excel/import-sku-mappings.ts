@@ -1,4 +1,8 @@
-import type { BulkImportSkuMappingsResult, NewSkuMapping, SkuMappingImportError } from '@shared/types'
+import type {
+  BulkImportSkuMappingsResult,
+  NewSkuMapping,
+  SkuMappingImportError
+} from '@shared/types'
 import type { StitchFlowDatabase } from '../db'
 import { readSpreadsheet, SpreadsheetReadError } from './read-workbook'
 
@@ -49,7 +53,11 @@ export async function importSkuMappings(
       error instanceof SpreadsheetReadError
         ? error.message
         : `That file could not be read: ${error instanceof Error ? error.message : String(error)}`
-    return { fileName: filePath.split(/[\\/]/).pop() ?? filePath, imported: 0, errors: [{ rowNumber: 0, reason: message }] }
+    return {
+      fileName: filePath.split(/[\\/]/).pop() ?? filePath,
+      imported: 0,
+      errors: [{ rowNumber: 0, reason: message }]
+    }
   }
 
   const columnFor = new Map<keyof RowFields, number>()
@@ -83,7 +91,7 @@ export async function importSkuMappings(
   const errors: SkuMappingImportError[] = []
 
   contents.rows.forEach((row, position) => {
-    const rowNumber = position + 1
+    const rowNumber = contents.rowNumbers[position] ?? position + 1
     const incomingSku = cell(row, 'incomingSku')
     const factorySku = cell(row, 'factorySku')
 
@@ -95,6 +103,13 @@ export async function importSkuMappings(
       return
     }
 
+    if (!['', 'tiktok', 'shopee', 'lazada', 'unknown'].includes(cell(row, 'platform'))) {
+      errors.push({
+        rowNumber,
+        reason: 'Unknown marketplace. Use tiktok, shopee, lazada, unknown, or blank.'
+      })
+      return
+    }
     valid.push({
       incomingSku,
       factorySku,
@@ -106,9 +121,22 @@ export async function importSkuMappings(
     })
   })
 
+  let imported = 0
   db.transaction(() => {
-    db.skuMappings.upsertMany(valid)
+    for (const input of valid) {
+      try {
+        db.skuMappings.create(input)
+        imported++
+      } catch (error) {
+        if (String(error).includes('UNIQUE constraint'))
+          errors.push({
+            rowNumber: 0,
+            reason: `Mapping conflict for ${input.incomingSku}. Edit the existing mapping explicitly; no mapping was overwritten.`
+          })
+        else throw error
+      }
+    }
   })
 
-  return { fileName: contents.fileName, imported: valid.length, errors }
+  return { fileName: contents.fileName, imported, errors }
 }

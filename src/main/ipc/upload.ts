@@ -1,8 +1,23 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { ipcMain } from './trusted-ipc'
+import { BrowserWindow, dialog } from 'electron'
 import { IpcChannels } from '@shared/ipc-channels'
 import type { ApplyMappingRequest, ImportFile, UploadResult } from '@shared/types'
 import { getDatabase } from '../db'
 import { importSpreadsheet } from '../excel/import-file'
+import { boundedText, positiveId } from '@shared/validation'
+import { listSellers } from '../db/repositories/delivery'
+import { resolve, extname } from 'node:path'
+
+const selectedFiles = new Set<string>()
+function grantFile(path: string): void {
+  if (!['.xlsx', '.xls', '.csv'].includes(extname(path).toLowerCase()))
+    throw new Error('Unsupported file extension.')
+  if (selectedFiles.size > 200) selectedFiles.clear()
+  selectedFiles.add(resolve(path))
+}
+function requireSelected(path: string): void {
+  if (!selectedFiles.has(resolve(path))) throw new Error('Select or drop this file first.')
+}
 
 /**
  * Even though the renderer is our own code, everything crossing the bridge is checked
@@ -30,6 +45,8 @@ function assertMappingRequest(value: unknown): ApplyMappingRequest {
   }
 
   return {
+    sellerAccountId: positiveId(request.sellerAccountId, 'Seller account'),
+    sheetName: boundedText(request.sheetName ?? '', 'Worksheet'),
     filePath: request.filePath,
     mapping: {
       orderId: String(request.mapping.orderId ?? ''),
@@ -46,6 +63,15 @@ function assertMappingRequest(value: unknown): ApplyMappingRequest {
 }
 
 export function registerUploadHandlers(): void {
+  ipcMain.on(IpcChannels.uploadDroppedFile, (_event, path: unknown) => {
+    if (typeof path === 'string') {
+      try {
+        grantFile(path)
+      } catch {
+        /* invalid dropped files are rejected again at import */
+      }
+    }
+  })
   ipcMain.handle(IpcChannels.uploadPickFiles, async (event): Promise<string[]> => {
     const window = BrowserWindow.fromWebContents(event.sender)
 
@@ -53,20 +79,31 @@ export function registerUploadHandlers(): void {
       ? await dialog.showOpenDialog(window, openDialogOptions())
       : await dialog.showOpenDialog(openDialogOptions())
 
-    return result.canceled ? [] : result.filePaths
+    if (result.canceled) return []
+    result.filePaths.forEach(grantFile)
+    return result.filePaths
   })
 
   ipcMain.handle(
     IpcChannels.uploadImportFiles,
-    async (_event, paths: unknown): Promise<UploadResult[]> => {
-      const filePaths = assertStringArray(paths, 'paths')
+    async (_event, input: unknown): Promise<UploadResult[]> => {
+      if (!input || typeof input !== 'object') throw new Error('An import request is required.')
+      const request = input as { filePaths: unknown; sellerAccountId: unknown; sheetName?: unknown }
+      const filePaths = assertStringArray(request.filePaths, 'paths')
+      if (filePaths.length > 20) throw new Error('Import at most 20 files at once.')
+      const sellerAccountId = positiveId(request.sellerAccountId, 'Seller account')
+      const sheetName =
+        request.sheetName === undefined ? undefined : boundedText(request.sheetName, 'Worksheet')
       const db = getDatabase()
 
       // Sequential on purpose: each file's duplicate check reads rows the previous file
       // may have just written.
       const results: UploadResult[] = []
       for (const filePath of filePaths) {
-        results.push(await importSpreadsheet(db, filePath))
+        requireSelected(filePath)
+        results.push(
+          await importSpreadsheet(db, filePath, { sellerAccountId, sheetName, previewOnly: true })
+        )
       }
       return results
     }
@@ -75,13 +112,22 @@ export function registerUploadHandlers(): void {
   ipcMain.handle(
     IpcChannels.uploadApplyMapping,
     async (_event, request: unknown): Promise<UploadResult> => {
-      const { filePath, mapping, remember, mappingName, platform } = assertMappingRequest(request)
+      const { filePath, mapping, remember, mappingName, platform, sellerAccountId, sheetName } =
+        assertMappingRequest(request)
+      requireSelected(filePath)
+      if (!listSellers(getDatabase()).some((s) => s.id === sellerAccountId && s.active))
+        throw new Error('Choose an active seller.')
+      const columns = Object.values(mapping).filter(Boolean)
+      if (new Set(columns).size !== columns.length)
+        throw new Error('Each field must use a different column.')
 
       return importSpreadsheet(getDatabase(), filePath, {
         mapping,
         remember,
         mappingName,
-        platform
+        platform,
+        sellerAccountId,
+        sheetName: sheetName || undefined
       })
     }
   )
@@ -89,13 +135,23 @@ export function registerUploadHandlers(): void {
   ipcMain.handle(IpcChannels.uploadListPending, (): ImportFile[] => {
     return getDatabase().importFiles.listUnassigned()
   })
+  ipcMain.handle(IpcChannels.uploadPendingRows, (_event, id: unknown) =>
+    getDatabase()
+      .importedOrders.listByFile(positiveId(id))
+      .filter((order) => order.batchId === null)
+  )
 
   ipcMain.handle(IpcChannels.uploadRemoveFile, (_event, id: unknown): boolean => {
     if (typeof id !== 'number' || !Number.isInteger(id)) {
       throw new TypeError('id must be an integer')
     }
     // imported_orders rows go with it — ON DELETE CASCADE.
-    return getDatabase().importFiles.remove(id)
+    const db = getDatabase(),
+      file = db.importFiles.getById(id)
+    if (file?.batchId !== null) throw new Error('Only pending imports may be removed.')
+    if (db.importedOrders.listByFile(id).some((order) => order.batchId !== null))
+      throw new Error('This file has batched source rows and must be retained for history.')
+    return db.importFiles.remove(id)
   })
 
   ipcMain.handle(IpcChannels.uploadUnmarkDuplicates, (_event, importFileId: unknown): number => {
@@ -103,7 +159,9 @@ export function registerUploadHandlers(): void {
       throw new TypeError('importFileId must be an integer')
     }
     // "Import Anyway" — the operator has seen the warning and wants these rows counted.
-    return getDatabase().importedOrders.clearDuplicateForFile(importFileId)
+    throw new Error(
+      'Exact duplicates cannot be counted again. Review source order identities and create a documented manual adjustment when necessary.'
+    )
   })
 }
 

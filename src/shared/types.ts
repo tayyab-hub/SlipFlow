@@ -20,11 +20,11 @@ export interface AppInfo {
 }
 
 /**
- * The four dashboard counters.
- *
- * Still placeholder zeros in the UI — nothing queries the database for these yet.
+ * Operational counters computed from persisted SQLite records.
  */
 export interface DashboardSummary {
+  pendingOrders: number
+  activeBatches: number
   /** Orders read from uploaded marketplace files. */
   ordersImported: number
   /** Total units to sew, after grouping by factory SKU + colour + size. */
@@ -36,6 +36,8 @@ export interface DashboardSummary {
 }
 
 export const EMPTY_DASHBOARD_SUMMARY: DashboardSummary = {
+  pendingOrders: 0,
+  activeBatches: 0,
   ordersImported: 0,
   itemsToProduce: 0,
   needsReview: 0,
@@ -149,6 +151,7 @@ export type BatchUpdate = Partial<Omit<Batch, 'id' | 'createdAt' | 'updatedAt'>>
 // ---------------------------------------------------------------------------
 
 export interface ImportFile {
+  sellerAccountId: number | null
   id: number
   batchId: number | null
   columnMappingId: number | null
@@ -165,6 +168,7 @@ export interface ImportFile {
 }
 
 export interface NewImportFile {
+  sellerAccountId?: number | null
   fileName: string
   batchId?: number | null
   columnMappingId?: number | null
@@ -184,6 +188,11 @@ export type ImportFileUpdate = Partial<Omit<ImportFile, 'id' | 'importedAt'>>
 // ---------------------------------------------------------------------------
 
 export interface ImportedOrder {
+  sellerAccountId: number | null
+  rawQuantity: string
+  orderLineId: string
+  validationNote: string
+  productName: string
   id: number
   importFileId: number
   batchId: number | null
@@ -196,13 +205,18 @@ export interface ImportedOrder {
   rawColour: string
   rawSize: string
   quantity: number
-  /** hash(orderId + sku + variation + quantity) — the duplicate key. */
+  /** Versioned hash of marketplace, seller, order and line identity. */
   duplicateHash: string
   isDuplicate: boolean
   createdAt: string
 }
 
 export interface NewImportedOrder {
+  sellerAccountId?: number | null
+  rawQuantity?: string
+  orderLineId?: string
+  validationNote?: string
+  productName?: string
   importFileId: number
   batchId?: number | null
   rowNumber?: number
@@ -263,7 +277,7 @@ export interface ProductionItem {
   sourcePlatforms: string
   issueType: ProductionIssueType
   issueNote: string
-  /** Unresolved rows are excluded from the printed sheet. */
+  /** Unresolved rows block final production output for the entire batch. */
   isResolved: boolean
   /** True when the operator added or edited the row by hand. */
   isManual: boolean
@@ -338,7 +352,10 @@ export const FIELD_LABELS: Record<MappableField, string> = {
 }
 
 /** Without these two a file cannot be imported at all. */
-export const REQUIRED_MAPPING_FIELDS = ['sku', 'quantity'] as const satisfies readonly MappableField[]
+export const REQUIRED_MAPPING_FIELDS = [
+  'sku',
+  'quantity'
+] as const satisfies readonly MappableField[]
 
 export const FIELD_HINTS: Record<MappableField, string> = {
   sku: 'The product code the factory recognises',
@@ -401,6 +418,9 @@ export interface UploadResult {
 
 /** Sent when the operator finishes the manual-mapping screen. */
 export interface ApplyMappingRequest {
+  sellerAccountId?: number
+  sheetName?: string
+  previewOnly?: boolean
   filePath: string
   mapping: FieldMapping
   /** Save the mapping so files with the same layout are recognised next time. */
@@ -426,6 +446,7 @@ export interface BatchGroupingResult {
   /** Resolved lines whose colour/size came from splitting the variation text rather
    *  than an explicit SKU mapping — informational, not a problem. */
   autoSplitCount: number
+  unmappedSkuCount: number
   /** Order lines excluded from the batch because they matched an existing hash. */
   duplicateRowsExcluded: number
 }

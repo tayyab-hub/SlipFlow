@@ -59,3 +59,9 @@ coverage/
 tmp/
 temp/
 scratch/
+temp-audit.json
+*.before-restore-*
+backups/
+test-results/
+playwright-report/
+order-exports/

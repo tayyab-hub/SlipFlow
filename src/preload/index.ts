@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IpcChannels } from '@shared/ipc-channels'
 import type {
+  AppSettings,
+  BackupInfo,
+  BatchEvidence,
+  SellerAccount,
+  SourceOrder
+} from '@shared/delivery'
+import type {
   AppInfo,
   ApplyMappingRequest,
   Batch,
@@ -8,6 +15,7 @@ import type {
   BulkImportSkuMappingsResult,
   DashboardSummary,
   ImportFile,
+  ImportedOrder,
   NewProductionItem,
   NewSkuMapping,
   ProductionItem,
@@ -24,6 +32,35 @@ import type {
  * expose a generic `invoke(channel, ...args)` passthrough.
  */
 const api = {
+  listSellers: (): Promise<SellerAccount[]> => ipcRenderer.invoke(IpcChannels.sellersList),
+  saveSeller: (seller: {
+    id?: number
+    name: string
+    platform: string
+    active?: boolean
+  }): Promise<SellerAccount[]> => ipcRenderer.invoke(IpcChannels.sellersSave, seller),
+  getSettings: (): Promise<AppSettings> => ipcRenderer.invoke(IpcChannels.settingsGet),
+  saveSettings: (settings: AppSettings): Promise<AppSettings> =>
+    ipcRenderer.invoke(IpcChannels.settingsSave, settings),
+  batchEvidence: (id: number): Promise<BatchEvidence> =>
+    ipcRenderer.invoke(IpcChannels.batchEvidence, id),
+  itemSources: (id: number): Promise<SourceOrder[]> =>
+    ipcRenderer.invoke(IpcChannels.itemSources, id),
+  updateBatch: (input: {
+    id: number
+    name: string
+    notes: string
+    status: string
+  }): Promise<Batch> => ipcRenderer.invoke(IpcChannels.batchUpdate, input),
+  listBackups: (): Promise<BackupInfo[]> => ipcRenderer.invoke(IpcChannels.backupsList),
+  backupStatus: (): Promise<string> => ipcRenderer.invoke(IpcChannels.backupStatus),
+  createBackup: (): Promise<string> => ipcRenderer.invoke(IpcChannels.backupCreate),
+  restoreBackup: (name: string | null): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.backupRestore, name),
+  nativePrint: (batchId: number, layout: string): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.printNative, { batchId, layout }),
+  printPreview: (batchId: number, layout: string): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.printPreview, { batchId, layout }),
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke(IpcChannels.appInfo),
 
   getDashboardSummary: (): Promise<DashboardSummary> =>
@@ -32,14 +69,20 @@ const api = {
   /** Opens the native file picker. Returns `[]` if the operator cancels. */
   pickOrderFiles: (): Promise<string[]> => ipcRenderer.invoke(IpcChannels.uploadPickFiles),
 
-  importOrderFiles: (filePaths: string[]): Promise<UploadResult[]> =>
-    ipcRenderer.invoke(IpcChannels.uploadImportFiles, filePaths),
+  importOrderFiles: (
+    filePaths: string[],
+    sellerAccountId: number,
+    sheetName?: string
+  ): Promise<UploadResult[]> =>
+    ipcRenderer.invoke(IpcChannels.uploadImportFiles, { filePaths, sellerAccountId, sheetName }),
 
   applyColumnMapping: (request: ApplyMappingRequest): Promise<UploadResult> =>
     ipcRenderer.invoke(IpcChannels.uploadApplyMapping, request),
 
   listPendingImports: (): Promise<ImportFile[]> =>
     ipcRenderer.invoke(IpcChannels.uploadListPending),
+  pendingOrderRows: (fileId: number): Promise<ImportedOrder[]> =>
+    ipcRenderer.invoke(IpcChannels.uploadPendingRows, fileId),
 
   removeImport: (importFileId: number): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.uploadRemoveFile, importFileId),
@@ -64,8 +107,12 @@ const api = {
     ipcRenderer.invoke(IpcChannels.skuMappingsBulkImport),
 
   /** Groups every currently-pending upload into one new production batch. */
-  createBatchFromPending: (): Promise<BatchGroupingResult> =>
-    ipcRenderer.invoke(IpcChannels.batchesCreateFromPending),
+  createBatchFromPending: (
+    fileIds: number[],
+    name: string,
+    orderIds?: number[]
+  ): Promise<BatchGroupingResult> =>
+    ipcRenderer.invoke(IpcChannels.batchesCreateFromPending, { fileIds, name, orderIds }),
 
   listBatches: (options?: { limit?: number }): Promise<Batch[]> =>
     ipcRenderer.invoke(IpcChannels.batchesList, options ?? {}),
@@ -83,7 +130,10 @@ const api = {
   listPrintableItems: (batchId: number): Promise<ProductionItem[]> =>
     ipcRenderer.invoke(IpcChannels.productionItemsListPrintable, batchId),
 
-  updateProductionItem: (id: number, changes: ProductionItemUpdate): Promise<ProductionItem | null> =>
+  updateProductionItem: (
+    id: number,
+    changes: ProductionItemUpdate
+  ): Promise<ProductionItem | null> =>
     ipcRenderer.invoke(IpcChannels.productionItemsUpdate, { id, changes }),
 
   createProductionItem: (input: NewProductionItem): Promise<ProductionItem> =>
@@ -96,8 +146,8 @@ const api = {
     ipcRenderer.invoke(IpcChannels.productionItemsMerge, { batchId, ids }),
 
   /** Opens a save dialog and writes the current page as a PDF. `saved: false` if cancelled. */
-  savePrintPdf: (suggestedFileName: string): Promise<SavePdfResult> =>
-    ipcRenderer.invoke(IpcChannels.printSaveAsPdf, suggestedFileName),
+  savePrintPdf: (batchId: number, layout: string): Promise<SavePdfResult> =>
+    ipcRenderer.invoke(IpcChannels.printSaveAsPdf, { batchId, layout }),
 
   /**
    * Resolves a dropped `File` to its path on disk.
@@ -106,7 +156,11 @@ const api = {
    * hence the thin wrapper. It returns a path, not file contents, so the renderer still
    * never reads from disk itself.
    */
-  pathForDroppedFile: (file: File): string => webUtils.getPathForFile(file)
+  pathForDroppedFile: (file: File): string => {
+    const path = webUtils.getPathForFile(file)
+    if (path) ipcRenderer.send(IpcChannels.uploadDroppedFile, path)
+    return path
+  }
 }
 
 export type StitchFlowApi = typeof api

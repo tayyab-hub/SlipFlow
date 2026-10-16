@@ -1,4 +1,5 @@
-import { app, ipcMain } from 'electron'
+import { ipcMain } from './trusted-ipc'
+import { app } from 'electron'
 import { IpcChannels } from '@shared/ipc-channels'
 import type { AppInfo, DashboardSummary } from '@shared/types'
 import { getDatabase } from '../db'
@@ -20,6 +21,15 @@ export function registerAppHandlers(): void {
 
     return {
       ordersImported: db.importedOrders.count(),
+      pendingOrders: db.importFiles
+        .listUnassigned()
+        .reduce(
+          (sum, file) =>
+            sum + db.importedOrders.listByFile(file.id).filter((o) => !o.isDuplicate).length,
+          0
+        ),
+      activeBatches: db.batches.list().filter((b) => b.status === 'draft' || b.status === 'ready')
+        .length,
       itemsToProduce: production.units,
       needsReview: production.unresolved,
       batchesToday: db.batches.countCreatedOn(today)

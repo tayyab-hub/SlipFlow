@@ -35,6 +35,7 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
   const [form, setForm] = useState<NewSkuMapping>(EMPTY_FORM)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setMappings(await window.stitchflow.listSkuMappings())
@@ -53,9 +54,11 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
     setBusy(true)
     setNotice(null)
     try {
-      await window.stitchflow.createSkuMapping(form)
+      if (editingId) await window.stitchflow.updateSkuMapping(editingId, form)
+      else await window.stitchflow.createSkuMapping(form)
       setNotice(`Saved mapping for "${form.incomingSku}".`)
       setForm(EMPTY_FORM)
+      setEditingId(null)
       await load()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'That mapping could not be saved.')
@@ -65,6 +68,8 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
   }
 
   async function remove(mapping: SkuMapping): Promise<void> {
+    if (!window.confirm('Remove this mapping? Existing batch items will keep their saved values.'))
+      return
     setBusy(true)
     try {
       await window.stitchflow.removeSkuMapping(mapping.id)
@@ -89,7 +94,9 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
         result.errors.length > 0
           ? ` ${result.errors.length} row${result.errors.length === 1 ? '' : 's'} skipped — ${result.errors
               .slice(0, 3)
-              .map((error) => (error.rowNumber === 0 ? error.reason : `row ${error.rowNumber}: ${error.reason}`))
+              .map((error) =>
+                error.rowNumber === 0 ? error.reason : `row ${error.rowNumber}: ${error.reason}`
+              )
               .join('; ')}${result.errors.length > 3 ? '…' : ''}`
           : ''
       setNotice(imported + skipped)
@@ -106,9 +113,9 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
         <div className="space-y-1">
           <h2 className="text-lg font-semibold tracking-tight">SKU Mappings</h2>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            Teach StitchFlow which incoming SKU is which factory SKU, colour and size. One
-            mapping covers every platform and however that platform writes the variation —
-            leave Platform and Variation blank to match by SKU alone.
+            Teach StitchFlow which incoming SKU is which factory SKU, colour and size. One mapping
+            covers every platform and however that platform writes the variation — leave Platform
+            and Variation blank to match by SKU alone.
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -133,7 +140,18 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
       )}
 
       <Card className="space-y-3 p-5">
-        <h3 className="text-sm font-semibold">Add a mapping</h3>
+        <h3 className="text-sm font-semibold">{editingId ? 'Edit mapping' : 'Add a mapping'}</h3>
+        {editingId && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setEditingId(null)
+              setForm(EMPTY_FORM)
+            }}
+          >
+            Cancel edit
+          </Button>
+        )}
         <form onSubmit={(event) => void submit(event)} className="grid gap-3 sm:grid-cols-4">
           {FIELDS.map(({ key, label, required }) => (
             <label key={key} className="block space-y-1.5">
@@ -143,7 +161,9 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
               </span>
               <input
                 value={form[key] ?? ''}
-                onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, [key]: event.target.value }))
+                }
                 disabled={busy}
                 className="h-9 w-full rounded-lg border border-input bg-card px-3 text-sm outline-none focus-visible:border-ring disabled:opacity-50"
               />
@@ -156,7 +176,7 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
               className="w-full"
             >
               <Plus />
-              Add
+              {editingId ? 'Save' : 'Add'}
             </Button>
           </div>
         </form>
@@ -206,12 +226,37 @@ export function SkuMappingPage({ onNavigate }: SkuMappingPageProps) {
                       )}
                     </td>
                     <td className="px-4 py-2 font-medium">{mapping.factorySku}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{mapping.factoryColour || '—'}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{mapping.factorySize || '—'}</td>
-                    <td className="max-w-[220px] truncate px-4 py-2 text-muted-foreground" title={mapping.notes}>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {mapping.factoryColour || '—'}
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {mapping.factorySize || '—'}
+                    </td>
+                    <td
+                      className="max-w-[220px] truncate px-4 py-2 text-muted-foreground"
+                      title={mapping.notes}
+                    >
                       {mapping.notes || '—'}
                     </td>
                     <td className="px-4 py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditingId(mapping.id)
+                          setForm({
+                            incomingSku: mapping.incomingSku,
+                            incomingVariation: mapping.incomingVariation,
+                            platform: mapping.platform,
+                            factorySku: mapping.factorySku,
+                            factoryColour: mapping.factoryColour,
+                            factorySize: mapping.factorySize,
+                            notes: mapping.notes
+                          })
+                        }}
+                      >
+                        Edit
+                      </Button>
                       <Button
                         size="icon"
                         variant="ghost"

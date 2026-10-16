@@ -16,6 +16,7 @@ export default defineConfig({
           // `npm run db:verify`, `npm run import:verify`, `npm run grouping:verify` and
           // `npm run review:verify`.
           index: resolve(__dirname, 'src/main/index.ts'),
+          'release-verify': resolve(__dirname, 'src/main/release-verify.ts'),
           'db-verify': resolve(__dirname, 'src/main/db-verify.ts'),
           'import-verify': resolve(__dirname, 'src/main/import-verify.ts'),
           'grouping-verify': resolve(__dirname, 'src/main/grouping-verify.ts'),

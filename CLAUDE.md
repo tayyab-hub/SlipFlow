@@ -1,10 +1,18 @@
-# CLAUDE.md — StitchFlow (Factory Software)
+# CLAUDE.md — SlipFlow (formerly StitchFlow)
 
 This file is read automatically at the start of every Claude Code session. It is the
 project's standing contract: stack, conventions, and hard rules. Keep it short and
 current. Session-to-session state lives in [PROGRESS.md](PROGRESS.md) — read that too.
 
 ---
+
+## Release 1.0.0 current contract
+
+The owner's comprehensive 2026-10-16 instruction authorized completion, dependency changes, verification, Windows packaging and publication. The old numbered phase plan below is historical; current behavior and commands are documented in README.md and docs/.
+
+Preserve `%APPDATA%\StitchFlow\stitchflow.db`, the legacy application ID, applied migrations and permanent sample fixtures. Unknown mappings and invalid quantities require explicit review. Final output requires a fully resolved ready/printed batch; PDF export and opening a print dialog never confirm physical printing. Seller accounts are local shop identities, not authentication accounts. Backups are verified SQLite snapshots, not ZIP files. Individual order-line assignment is authoritative for partial file batches.
+
+Run `npm run lint`, `npm run typecheck`, `npm test` and `npm run test:e2e` for relevant changes. `npm run pack:win` creates the installer. Preserve security controls and use temporary data for destructive tests. Do not silently reinterpret marketplace cancellation or factory mapping rules. Do not claim factory savings or real-printer validation without evidence.
 
 ## 1. What this is
 
