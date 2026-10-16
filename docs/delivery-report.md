@@ -4,7 +4,7 @@ Date: 2026-10-16. Developer: Muhammad Tayyab. Evidence is bounded to the environ
 
 ## A. Application status
 
-Core local workflows, documentation, presentation and Windows packaging are complete and locally verified. Source is published and a hosted Windows workflow has passed. The final branding/artifact revision is awaiting its hosted gate before installer release publication. Real factory operation and physical printing have not been verified.
+Core local workflows, documentation, presentation and Windows delivery are complete and verified within the documented test scope. Source is public, hosted CI passed and the versioned installer release is published. Real factory operation and physical printing remain unverified.
 
 ## B. Implemented functionality
 
@@ -30,7 +30,9 @@ The [editable PowerPoint](presentation/SlipFlow_Presentation.pptx) and [PDF](pre
 
 ## G. GitHub publication
 
-Target: https://github.com/tayyab-hub/SlipFlow. Authenticated account verified as `tayyab-hub`; target was available. Initial history is preserved by checkpoint `410c4ae`. Source is published on main with matching local/remote commits. Hosted run https://github.com/tayyab-hub/SlipFlow/actions/runs/38922441777 passed after correcting a UI test timing race. The final branding/artifact revision is being verified before the release tag is published. The release will be published only after the exact source commit has a successful Windows workflow run.
+Published repository: https://github.com/tayyab-hub/SlipFlow, branch `main`. Release tag `v1.0.0` resolves to **34e0a257d22a818af26dded0aff6f1302279dd54**. [The exact release commit's Windows workflow](https://github.com/tayyab-hub/SlipFlow/actions/runs/38923172886) completed successfully: install, privacy scan, lint, type checking, dependency audit, all 96 verification checks, both UI scenarios and Windows packaging.
+
+[SlipFlow 1.0.0 release](https://github.com/tayyab-hub/SlipFlow/releases/tag/v1.0.0) is public and contains `SlipFlow-Setup-1.0.0.exe` (104,526,127 bytes) and `SHA256SUMS.txt`. GitHub's reported asset digests match the local files. Installer SHA-256: `1703d7ffacaa386d6c59ca080dcc58fc78fa6f3963cd949735f5f1849fb95f26`. README, presentation files, installation evidence and workflow Git blobs were verified against the remote. The initial history and checkpoint `410c4ae` remain intact. This final report update follows the release commit and does not change the shipped application. [Publication evidence](evidence/github-publication.json).
 
 ## H. Limitations
 
@@ -59,5 +61,5 @@ Download the release installer, verify its SHA-256, run it and launch SlipFlow. 
 | Windows 10 and clean-PC matrix | NOT VERIFIED | Additional test hosts needed |
 | Documentation/screenshots/presentation | PASS | docs/, eight screenshots, validated 12-slide PPTX/PDF |
 | Public source/history privacy gate | PASS | Configured credential/runtime-file scan and synthetic fixture review |
-| GitHub push, CI and release | NOT VERIFIED | Pending publication at this report revision |
+| GitHub push, CI and release | PASS | Verified tag/commit, successful hosted run and matching published asset digests |
 | Real factory validation and measured savings | NOT VERIFIED | No production pilot or study performed |

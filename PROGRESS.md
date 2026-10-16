@@ -10,7 +10,7 @@ every session.
 ## Current state
 
 **Release:** SlipFlow 1.0.0
-**Status:** Core implementation and local quality gates complete; GitHub publication and CI verification in progress.
+**Status:** Release complete within documented validation scope. Public source, successful hosted CI and v1.0.0 installer release verified.
 **Last updated:** 2026-10-16
 
 The release preserves the initial work in checkpoint `410c4ae`, retains migration 0001 and all fixed sample files, and preserves the legacy StitchFlow data path. It adds seller identity, conservative duplicate handling, strict quantities, source provenance, individual source-line selection, review/reconciliation, complete A4 output, history, settings and verified backup/restore. Legacy unfinished rows require review.
@@ -934,3 +934,7 @@ Remaining: final QA/security/privacy audit, installer install/startup/uninstall 
 ### Hosted CI follow-up
 
 Published source with preserved history. Initial Windows Server 2025 hosted runs passed dependency install, privacy scan, lint, type checking, audit and all 96 verification checks, but exposed a timing race in the partial-order UI assertion. The test now waits for rendered row count and completed batch navigation. Local full rerun: 2 PASS; targeted follow-up: 1 PASS. Hosted rerun is in progress. Final branding review also updated the remaining old-name operator messages without changing legacy database identity.
+
+### Final publication evidence
+
+Release `v1.0.0` points to `34e0a257d22a818af26dded0aff6f1302279dd54`. GitHub run https://github.com/tayyab-hub/SlipFlow/actions/runs/38923172886 passed all gates, including 96 verification checks, two Electron UI scenarios and Windows packaging. Release https://github.com/tayyab-hub/SlipFlow/releases/tag/v1.0.0 is published with the installation-tested 104,526,127-byte installer and SHA256SUMS.txt. Both server-reported asset digests match local files. Installer SHA-256: `1703d7ffacaa386d6c59ca080dcc58fc78fa6f3963cd949735f5f1849fb95f26`. Final PPTX/PDF and all eight screenshots reflect the final branded app. No real factory, physical-printer or Windows 10 claim is made. Detailed A-J report: docs/delivery-report.md.

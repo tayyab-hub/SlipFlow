@@ -66,6 +66,8 @@ The 12-slide PPTX passes package/relationship checks, slide count/dimension/font
 
 No production factory dataset, physical printer, Windows 10 host or independent security penetration test was available. Automatic backup snapshot/retention code is shared with the verified backup implementation; a long-running unattended timer/disk-full soak test has not been performed. See [known limitations](known-limitations.md).
 
-The initial hosted UI run exposed an assertion timing race after opening the pending-row list. The test now waits for the expected checkbox count and completed batch navigation. Local reruns and the hosted Windows Server 2025 workflow pass on the corrective commit. The final branding/artifact revision receives another hosted run before release. No application validation was disabled.
+The initial hosted UI run exposed an assertion timing race after opening the pending-row list. The test now waits for the expected checkbox count and completed batch navigation. Local reruns and the hosted Windows Server 2025 workflow pass on the corrective commit. The final branding/artifact revision also passed hosted verification before release. No application validation was disabled.
 
 Successful hosted correction run: https://github.com/tayyab-hub/SlipFlow/actions/runs/38922441777 (commit d7b58bc0e0e8227e0301429f6e23aa4becc42106). Hosted Node.js was 24.21.0 with npm 11.19.0. All 96 verification checks, both UI scenarios and Windows packaging passed.
+
+Final release gate: https://github.com/tayyab-hub/SlipFlow/actions/runs/38923172886, commit `34e0a257d22a818af26dded0aff6f1302279dd54`, conclusion **success**. The GitHub release installer is the locally installation-tested artifact; CI independently built a Windows installer from the same source. The published asset SHA-256 was verified against the local file.

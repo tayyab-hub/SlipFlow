@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-16",
+  "repository": "https://github.com/tayyab-hub/SlipFlow",
+  "branch": "main",
+  "releaseCommit": "34e0a257d22a818af26dded0aff6f1302279dd54",
+  "tag": "v1.0.0",
+  "ciRun": "https://github.com/tayyab-hub/SlipFlow/actions/runs/38923172886",
+  "ciConclusion": "success",
+  "ciEnvironment": "Windows Server 2025 x64, Node 24.21.0, npm 11.19.0",
+  "release": {
+    "url": "https://github.com/tayyab-hub/SlipFlow/releases/tag/v1.0.0",
+    "draft": false,
+    "tag": "v1.0.0",
+    "assets": [
+      {
+        "name": "SHA256SUMS.txt",
+        "size": 92,
+        "digest": "sha256:83455aea62ccb73c93c2a550e060ffee0c60556b50a667a28ca23fd714508c9e"
+      },
+      {
+        "name": "SlipFlow-Setup-1.0.0.exe",
+        "size": 104526127,
+        "digest": "sha256:1703d7ffacaa386d6c59ca080dcc58fc78fa6f3963cd949735f5f1849fb95f26"
+      }
+    ]
+  },
+  "remoteAssetDigestsMatchLocal": true,
+  "historyPreserved": true
+}

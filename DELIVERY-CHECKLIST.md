@@ -16,11 +16,13 @@ Work branch: `codex/slipflow-release`. Original fixtures and migration 0001 rema
 - [x] Windows installer build, packaged startup and installation checks
 - [x] Documentation and actual application screenshots
 - [x] Editable PowerPoint, PDF and presentation/portfolio scripts
-- [ ] Privacy/history scan, commit, publish, verify remote and CI
-- [ ] Release gates and final evidence report
+- [x] Privacy/history scan, commit, publish, verify remote and CI
+- [x] Release gates and final evidence report
 
 Baseline: Windows, Electron 43.3.0; build PASS; db 11, import 13, grouping 11, review 10.
 Confirmed initial defects: lossy quantity parsing; cross-market duplicate key; unverified
 automatic SKU acceptance; invalid quantities can merge into valid groups; unchecked IPC
 updates; arbitrary merge identities and repeated IDs; printing incomplete batches;
 optimistic printed status; missing history/settings/backups/release pipeline.
+
+Release and CI evidence: docs/evidence/github-publication.json. Real factory, physical printer, Windows 10 and unattended backup soak checks remain explicitly NOT VERIFIED in docs/delivery-report.md.
